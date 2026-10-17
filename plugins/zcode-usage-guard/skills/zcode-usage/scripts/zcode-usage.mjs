@@ -522,9 +522,102 @@ export function localUsageToday(nowMs, rolloutDir) {
   return out;
 }
 
+// ---------- 本机生成速度:同源 rollout 日志,不依赖任何外部服务 ----------
+// 取最近活跃会话文件里的 N 次已完成调用,算 输出tokens/durationMs 的中位速度与缓存命中率。
+// 跨所有会话统计,是"本机当前速度";JSONL 没有首字延迟,所以是含预填充口径,比纯解码偏低属正常。
+export function localSpeedRecent(nowMs, rolloutDir, window = 10) {
+  const rdir = rolloutDir || path.join(os.homedir(), '.zcode', 'cli', 'rollout');
+  let files = [];
+  try {
+    files = fs.readdirSync(rdir).filter((f) => /^model-io-sess_.*\.jsonl$/.test(f))
+      .map((f) => ({ f, m: fs.statSync(path.join(rdir, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m).slice(0, 8).map((x) => x.f); // 最近活跃的会话文件优先
+  } catch { return null; }
+  const perFile = []; // 每个文件内的行是时间升序;文件按活跃度新→旧排
+  let cacheRead = 0, input = 0;
+  for (const f of files) {
+    let lines;
+    try { lines = fs.readFileSync(path.join(rdir, f), 'utf8').split('\n'); } catch { continue; }
+    const rates = [];
+    for (const line of lines) {
+      if (!line.includes('"durationMs":')) continue;
+      const dur = Number((line.match(/"durationMs":(\d+)/) || [])[1]);
+      const outp = Number((line.match(/"outputTokens":(\d+)/) || [])[1]);
+      if (!dur || !outp) continue; // 无用量或无耗时(中断/失败)的请求
+      rates.push(outp / (dur / 1000));
+      cacheRead += Number((line.match(/"cacheReadTokens":(\d+)/) || [])[1]) || 0;
+      input += Number((line.match(/"inputTokens":(\d+)/) || [])[1]) || 0;
+    }
+    if (rates.length) perFile.push(rates);
+  }
+  const recent = perFile.flat().slice(0, window);
+  if (!recent.length) return null;
+  recent.sort((a, b) => a - b);
+  const mid = Math.floor(recent.length / 2);
+  const median = recent.length % 2 ? recent[mid] : (recent[mid - 1] + recent[mid]) / 2;
+  return { samples: recent.length, medianRate: Math.round(median), cacheHitRate: input > 0 ? cacheRead / input : null };
+}
+
+// 会话注入开关:⚙ 设置的「会话启动注入用量摘要」,存 quota-guard-settings.json(与 guard/悬浮窗共用)。
+// 权限层级:上面的「额度告警」总开关(alertsEnabled)关闭时,注入锁定且不生效;
+// 默认关闭——用户不一定想要对话被注入上下文;关闭时 SessionStart 钩子直接返回,连网络请求都不发。
+function sessionInjectEnabled() {
+  try {
+    const s = JSON.parse(fs.readFileSync(
+      path.join(os.homedir(), '.zcode', 'scripts', 'quota-guard-settings.json'), 'utf8').replace(/^\uFEFF/, ''));
+    return s.sessionInject === true && s.alertsEnabled !== false;
+  } catch { return false; }
+}
+
+// 最近 N 次调用的纯解码速度/缓存命中/首字延迟:来自 ZCode 的 sqlite 用量库 model_usage 表,
+// 与输入框状态条(api-quota)同源同口径,数字会一致。纯解码 = 输出tokens / (总时长 - 首字延迟),
+// 剔除等首字的时间,反映模型真实吐字吞吐(含预填充口径会被首字延迟摊薄,显示偏低)。
+// node:sqlite 需 Node ≥22.5;低版本或库打开失败时返回 null(悬浮窗回退 JSONL 的含预填充口径)。
+export async function localSqliteStats(limit = 10) {
+  try {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(path.join(os.homedir(), '.zcode', 'cli', 'db', 'db.sqlite'), { readOnly: true });
+    const rows = db.prepare(
+      `SELECT output_tokens AS out, duration_ms AS dur, time_to_first_token_ms AS ttft,
+              input_tokens AS inp, cache_read_input_tokens AS cr
+       FROM model_usage
+       WHERE output_tokens > 0 AND duration_ms > 0
+         AND COALESCE(query_source, '') <> 'session_title'
+       ORDER BY started_at DESC LIMIT ?`
+    ).all(limit);
+    db.close();
+    const decodes = [], ttfts = [];
+    let cacheRead = 0, input = 0;
+    for (const r of rows) {
+      const out = Number(r.out), dur = Number(r.dur), ttft = Number(r.ttft);
+      if (ttft > 0 && dur > ttft) {
+        decodes.push(out / ((dur - ttft) / 1000));
+        ttfts.push(ttft);
+      }
+      cacheRead += Number(r.cr) || 0;
+      input += Number(r.inp) || 0;
+    }
+    if (!rows.length) return null;
+    const median = (arr) => {
+      if (!arr.length) return null;
+      arr.sort((a, b) => a - b);
+      const m = Math.floor(arr.length / 2);
+      return arr.length % 2 ? arr[m] : (arr[m - 1] + arr[m]) / 2;
+    };
+    const md = median(decodes);
+    const mt = median(ttfts);
+    return {
+      medianDecodeRate: md === null ? null : Math.round(md),
+      medianTtftMs: mt === null ? null : Math.round(mt),
+      cacheHitRate: input > 0 ? cacheRead / input : null,
+    };
+  } catch { return null; }
+}
+
 // ---------- 主流程 ----------
 async function main() {
   ensureCred();
+  if (asHook && !sessionInjectEnabled()) return;
   const quota = await get('/api/monitor/usage/quota/limit');
 
   // 状态快照:--hook 模式固定写默认路径;常规模式带 --state <path> 时写指定路径(自动化/调试用)
@@ -589,9 +682,22 @@ async function main() {
   }
 
   if (asJson) {
+    // 速度/缓存/首字:sqlite 纯解码口径优先(与输入框状态条一致);node:sqlite 不可用时回退 JSONL 含预填充
+    const sql = await localSqliteStats();
+    const ls = sql || localSpeedRecent(nowMs);
+    const localSpeed = (ls || sql)
+      ? {
+          samples: ls ? ls.samples : 0,
+          medianRate: ls ? ls.medianRate : null, // 回退口径:含预填充
+          medianDecodeRate: sql ? sql.medianDecodeRate : null, // 纯解码(展示用这个)
+          cacheHitRate: ls ? ls.cacheHitRate : null,
+          medianTtftMs: sql ? sql.medianTtftMs : null,
+        }
+      : null;
     console.log(JSON.stringify({
       quota, modelUsage, toolUsage, usageSplit,
       localUsage: localUsageToday(nowMs), // 本机视角:解析本地模型 I/O 日志(北京时间当日)
+      localSpeed, // 本机生成速度/缓存/首字:自行计算,悬浮窗的 ⚡ 行数据源
     }, null, 2));
     return;
   }

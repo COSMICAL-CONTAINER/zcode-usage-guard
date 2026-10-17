@@ -159,71 +159,134 @@ $xamlText = @'
                    FontSize="10" Foreground="{DynamicResource QuaternaryBrush}" Margin="0,12,0,0" TextWrapping="Wrap"/>
       </StackPanel>
 
-      <!-- ⚙ 设置面板:刷新间隔 / 唤出快捷键 / 额度阈值(保存到 quota-guard-settings.json,与 guard 共用) -->
+      <!-- ⚙ 设置面板:显示格式 / 常规 / 额度告警(保存到 quota-guard-settings.json,与 guard 共用);各项说明见名字后的 ? -->
       <StackPanel x:Name="SettingsPanel" Visibility="Collapsed">
-        <TextBlock Text="⚙ 设置" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource LabelBrush}"/>
-        <Grid Margin="0,3,0,10">
-          <TextBlock Text="修改即时生效;阈值用于右下角弹窗告警与「额度守卫」自动续跑" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" TextWrapping="Wrap"/>
-          <TextBlock x:Name="BtnHelp" Text="?" FontSize="10.5" FontWeight="Bold" Cursor="Hand" HorizontalAlignment="Right" Margin="4,0,0,0" Foreground="#0A84FF">
-            <TextBlock.ToolTip>
-              <ToolTip MaxWidth="300">
-                <TextBlock TextWrapping="Wrap" Text="「额度守卫」说明:任一额度池用量达到这里的阈值时,Windows 右下角会弹出告警;对话收尾时若额度不足,会自动保存工作进度并布置重置后自动续跑的定时任务,实现无人值守长跑。本机/账号对比看当日行右侧的 💹 图标。"/>
-              </ToolTip>
-            </TextBlock.ToolTip>
-          </TextBlock>
-        </Grid>
-        <Grid Height="26">
-          <TextBlock Text="自动刷新间隔" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
-          <ComboBox x:Name="SetRefresh" Width="110" Height="24" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center">
-            <ComboBoxItem Content="1 分钟"/>
-            <ComboBoxItem Content="5 分钟"/>
-            <ComboBoxItem Content="10 分钟"/>
-            <ComboBoxItem Content="15 分钟"/>
-            <ComboBoxItem Content="30 分钟"/>
-          </ComboBox>
-        </Grid>
-        <Grid Height="26" Margin="0,8,0,0">
-          <TextBlock Text="唤出快捷键" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-            <ComboBox x:Name="SetHotkeyMod" Width="76" Height="24" FontSize="11.5" Margin="0,0,8,0">
-              <ComboBoxItem Content="Ctrl"/>
-              <ComboBoxItem Content="Alt"/>
-              <ComboBoxItem Content="Shift"/>
-              <ComboBoxItem Content="Win"/>
-            </ComboBox>
-            <ComboBox x:Name="SetHotkeyKey" Width="76" Height="24" FontSize="11.5"/>
+        <TextBlock Text="⚙ 设置" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource LabelBrush}" Margin="0,0,0,4"/>
+        <!-- 分组框:一种设置一类;? 悬浮显示该项说明 -->
+        <Border CornerRadius="10" BorderBrush="{DynamicResource BorderBrushR}" BorderThickness="1" Padding="12,10" Margin="0,4,0,0">
+          <StackPanel>
+            <TextBlock Text="显示格式" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource QuaternaryBrush}" Margin="0,0,0,4"/>
+            <Grid Height="26">
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="模型名" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text=" ?" FontSize="10.5" FontWeight="Bold" Foreground="#0A84FF" Cursor="Hand" VerticalAlignment="Center"
+                           ToolTip="完整:GLM-5.3-flashx;短名:5.3-flashx(去掉 GLM- 前缀更省宽度)"/>
+              </StackPanel>
+              <ComboBox x:Name="SetModelName" Width="150" Height="24" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <ComboBoxItem Content="完整 GLM-5.3-flashx"/>
+                <ComboBoxItem Content="短名 5.3-flashx"/>
+              </ComboBox>
+            </Grid>
+            <Grid Height="26" Margin="0,8,0,0">
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="用量数字" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text=" ?" FontSize="10.5" FontWeight="Bold" Foreground="#0A84FF" Cursor="Hand" VerticalAlignment="Center"
+                           ToolTip="窗口内所有 token 数的格式:53.4M=紧凑,53,452,123=完整,5345.2万=中文"/>
+              </StackPanel>
+              <ComboBox x:Name="SetNumFmt" Width="150" Height="24" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <ComboBoxItem Content="紧凑 53.4M"/>
+                <ComboBoxItem Content="完整 53,452,123"/>
+                <ComboBoxItem Content="中文 5345.2万"/>
+              </ComboBox>
+            </Grid>
           </StackPanel>
-        </Grid>
-        <Grid Height="26" Margin="0,8,0,0">
-          <TextBlock Text="5小时池阈值" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
-          <ComboBox x:Name="SetTh5h" Width="110" Height="24" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center">
-            <ComboBoxItem Content="关闭"/>
-            <ComboBoxItem Content="80%"/>
-            <ComboBoxItem Content="85%"/>
-            <ComboBoxItem Content="90%"/>
-            <ComboBoxItem Content="95%"/>
-          </ComboBox>
-        </Grid>
-        <Grid Height="26" Margin="0,8,0,0">
-          <TextBlock Text="每周额度阈值" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
-          <ComboBox x:Name="SetThWeekly" Width="110" Height="24" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center">
-            <ComboBoxItem Content="关闭"/>
-            <ComboBoxItem Content="80%"/>
-            <ComboBoxItem Content="85%"/>
-            <ComboBoxItem Content="90%"/>
-            <ComboBoxItem Content="95%"/>
-          </ComboBox>
-        </Grid>
-        <Grid Height="26" Margin="0,8,0,0">
-          <TextBlock Text="MCP月度阈值" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
-          <ComboBox x:Name="SetThMcp" Width="110" Height="24" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center">
-            <ComboBoxItem Content="关闭"/>
-            <ComboBoxItem Content="80%"/>
-            <ComboBoxItem Content="85%"/>
-            <ComboBoxItem Content="90%"/>
-            <ComboBoxItem Content="95%"/>
-          </ComboBox>
-        </Grid>
+        </Border>
+        <Border CornerRadius="10" BorderBrush="{DynamicResource BorderBrushR}" BorderThickness="1" Padding="12,10" Margin="0,10,0,0">
+          <StackPanel>
+            <TextBlock Text="常规" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource QuaternaryBrush}" Margin="0,0,0,4"/>
+            <Grid Height="26">
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="自动刷新间隔" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text=" ?" FontSize="10.5" FontWeight="Bold" Foreground="#0A84FF" Cursor="Hand" VerticalAlignment="Center"
+                           ToolTip="后台查询官方套餐用量的频率"/>
+              </StackPanel>
+              <ComboBox x:Name="SetRefresh" Width="110" Height="24" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <ComboBoxItem Content="1 分钟"/>
+                <ComboBoxItem Content="5 分钟"/>
+                <ComboBoxItem Content="10 分钟"/>
+                <ComboBoxItem Content="15 分钟"/>
+                <ComboBoxItem Content="30 分钟"/>
+              </ComboBox>
+            </Grid>
+            <Grid Height="26" Margin="0,8,0,0">
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="唤出快捷键" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text=" ?" FontSize="10.5" FontWeight="Bold" Foreground="#0A84FF" Cursor="Hand" VerticalAlignment="Center"
+                           ToolTip="全局热键:任何界面按它收起/唤出悬浮窗"/>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <ComboBox x:Name="SetHotkeyMod" Width="76" Height="24" FontSize="11.5" Margin="0,0,8,0">
+                  <ComboBoxItem Content="Ctrl"/>
+                  <ComboBoxItem Content="Alt"/>
+                  <ComboBoxItem Content="Shift"/>
+                  <ComboBoxItem Content="Win"/>
+                </ComboBox>
+                <ComboBox x:Name="SetHotkeyKey" Width="76" Height="24" FontSize="11.5"/>
+              </StackPanel>
+            </Grid>
+          </StackPanel>
+        </Border>
+        <Border CornerRadius="10" BorderBrush="{DynamicResource BorderBrushR}" BorderThickness="1" Padding="12,10" Margin="0,10,0,0">
+          <StackPanel>
+            <CheckBox x:Name="SetAlertsOn" Content="额度告警" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource QuaternaryBrush}" Margin="0,0,0,4">
+              <CheckBox.ToolTip>
+                <ToolTip MaxWidth="320">
+                  <TextBlock TextWrapping="Wrap" Text="总开关(权限层级):关闭后,下面的阈值告警、会话注入、自动续跑三项全部锁定且不生效——无论它们各自的勾选状态,一键静默所有额度相关的主动介入。重新勾选后,各项按其勾选状态恢复生效。"/>
+                </ToolTip>
+              </CheckBox.ToolTip>
+            </CheckBox>
+            <StackPanel x:Name="AlertsPanel">
+              <Grid Height="26">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                  <TextBlock Text="5小时池阈值" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+                  <TextBlock Text=" ?" FontSize="10.5" FontWeight="Bold" Foreground="#0A84FF" Cursor="Hand" VerticalAlignment="Center"
+                             ToolTip="该池「已用比例」达到阈值时告警;选「关闭」= 不监控该池"/>
+                </StackPanel>
+                <ComboBox x:Name="SetTh5h" Width="110" Height="24" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                  <ComboBoxItem Content="关闭"/>
+                  <ComboBoxItem Content="80%"/>
+                  <ComboBoxItem Content="85%"/>
+                  <ComboBoxItem Content="90%"/>
+                  <ComboBoxItem Content="95%"/>
+                </ComboBox>
+              </Grid>
+              <Grid Height="26" Margin="0,8,0,0">
+                <TextBlock Text="每周额度阈值" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+                <ComboBox x:Name="SetThWeekly" Width="110" Height="24" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                  <ComboBoxItem Content="关闭"/>
+                  <ComboBoxItem Content="80%"/>
+                  <ComboBoxItem Content="85%"/>
+                  <ComboBoxItem Content="90%"/>
+                  <ComboBoxItem Content="95%"/>
+                </ComboBox>
+              </Grid>
+              <Grid Height="26" Margin="0,8,0,0">
+                <TextBlock Text="MCP月度阈值" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+                <ComboBox x:Name="SetThMcp" Width="110" Height="24" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                  <ComboBoxItem Content="关闭"/>
+                  <ComboBoxItem Content="80%"/>
+                  <ComboBoxItem Content="85%"/>
+                  <ComboBoxItem Content="90%"/>
+                  <ComboBoxItem Content="95%"/>
+                </ComboBox>
+              </Grid>
+            </StackPanel>
+            <CheckBox x:Name="SetSessionInject" Content="会话启动注入用量摘要" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" Margin="0,10,0,0">
+              <CheckBox.ToolTip>
+                <ToolTip MaxWidth="320">
+                  <TextBlock TextWrapping="Wrap" Text="开启后,每次新会话开始时把「5小时池/每周/MCP 余量+重置时间」注入对话上下文,模型能主动感知额度、在额度紧张时主动提醒你。下次新会话生效;默认关闭,对对话零打扰。受上面「额度告警」总开关控制:总开关关闭时本项锁定且不生效。"/>
+                </ToolTip>
+              </CheckBox.ToolTip>
+            </CheckBox>
+            <CheckBox x:Name="SetResumeGuard" Content="对话收尾自动续跑(登记制)" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" Margin="0,10,0,0">
+              <CheckBox.ToolTip>
+                <ToolTip MaxWidth="320">
+                  <TextBlock TextWrapping="Wrap" Text="「额度守卫」的核心功能:对登记了守卫的会话,在对话收尾(Stop)时检查额度——若任一额度池已超阈值,自动保存当前工作进度、写入续跑标记(resume-armed.flag),并布置看门狗定时任务,等额度重置后自动唤醒会话继续未完成的任务,适合通宵/无人值守长跑。只对主动登记过的会话生效,普通对话零打扰。受上面「额度告警」总开关控制:总开关关闭时本项锁定且不生效。"/>
+                </ToolTip>
+              </CheckBox.ToolTip>
+            </CheckBox>
+          </StackPanel>
+        </Border>
         <TextBlock x:Name="SetHint" Text="" FontSize="10" Foreground="#FFA94D" Margin="0,8,0,0" TextWrapping="Wrap"/>
         <StackPanel Orientation="Horizontal" Margin="0,10,0,0" HorizontalAlignment="Right">
           <Border x:Name="BtnSaveSettings" CornerRadius="6" Background="#0A84FF" Padding="14,5" Cursor="Hand" Margin="0,0,10,0">
@@ -324,8 +387,10 @@ $xamlText = @'
           </StackPanel>
         </Border>
       </Popup>
-      <!-- 模型拆分紧贴当日行,居中显示;高峰/非高峰明细放其后 -->
-      <TextBlock x:Name="FSub" Text="" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" Margin="0,3,0,0" TextAlignment="Center"/>
+      <!-- 模型拆分紧贴当日行,左对齐;高峰/非高峰明细放其后 -->
+      <TextBlock x:Name="FSub" Text="" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+      <!-- ⚡ 生成速度/缓存命中率:zcode-usage.mjs 从本机 rollout 日志自行计算,插件独立、无外部服务依赖 -->
+      <TextBlock x:Name="SpeedRow" Text="" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" Margin="0,3,0,0" Visibility="Collapsed"/>
       <Grid x:Name="PeakRow" Height="15" Margin="0,5,0,0">
         <TextBlock Text="高峰期(工作日 14–18 时)" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" VerticalAlignment="Center"/>
         <TextBlock x:Name="PeakValue" Text="" FontSize="10.5" HorizontalAlignment="Right" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
@@ -347,6 +412,7 @@ $BtnRefresh = & $el 'BtnRefresh'
 $BtnClose = & $el 'BtnClose'
 $FLabel = & $el 'FLabel'
 $FSub = & $el 'FSub'
+$SpeedRow = & $el 'SpeedRow'
 $Hint = & $el 'Hint'
 $PeakRow = & $el 'PeakRow'
 $PeakValue = & $el 'PeakValue'
@@ -383,6 +449,12 @@ $SetTh5h = & $el 'SetTh5h'
 $SetThWeekly = & $el 'SetThWeekly'
 $SetThMcp = & $el 'SetThMcp'
 $SetHint = & $el 'SetHint'
+$SetModelName = & $el 'SetModelName'
+$SetNumFmt = & $el 'SetNumFmt'
+$SetSessionInject = & $el 'SetSessionInject'
+$SetAlertsOn = & $el 'SetAlertsOn'
+$AlertsPanel = & $el 'AlertsPanel'
+$SetResumeGuard = & $el 'SetResumeGuard'
 $BtnSaveSettings = & $el 'BtnSaveSettings'
 $BtnCancelSettings = & $el 'BtnCancelSettings'
 $rows = @()
@@ -429,12 +501,27 @@ function Read-SettingsJson {
 $script:refreshChoices = @(1, 5, 10, 15, 30)
 $script:thresholdChoices = @(80, 85, 90, 95)
 $script:modChoices = @( @{ V = 2; Name = 'Ctrl' }, @{ V = 1; Name = 'Alt' }, @{ V = 4; Name = 'Shift' }, @{ V = 8; Name = 'Win' } )
-function ModsName([int]$m) { $hit = $script:modChoices | Where-Object { $_.V -eq $m }; if ($hit) { $hit[0].Name } else { "?$m" } }
+function ModsName([int]$m) { $hit = @($script:modChoices | Where-Object { $_.V -eq $m }); if ($hit.Count) { $hit[0].Name } else { "?$m" } }
+# 底部提示/收起按钮 ToolTip 用:显示当前实际注册的快捷键,改键后随之刷新
+function HotkeyName { return "$(ModsName $script:hotkeyModifiers)+$([char]$script:hotkeyKey)" }
+function Update-HotkeyHints {
+  $Hint.Text = "$(HotkeyName) 唤出 / 收起 · 拖拽面板可移动位置"
+  $BtnClose.ToolTip = "收起面板($(HotkeyName) 唤回;右键菜单可退出)"
+}
 $_cfg = Read-SettingsJson
 $script:refreshMinutes = if ($_cfg -and ($script:refreshChoices -contains [int]$_cfg.refreshMinutes)) { [int]$_cfg.refreshMinutes } else { 10 }
 $script:hotkeyModifiers = if ($_cfg -and ($script:modChoices.V -contains [int]$_cfg.hotkeyModifiers)) { [int]$_cfg.hotkeyModifiers } else { 2 }
 $script:hotkeyKey = if ($_cfg -and ([int]$_cfg.hotkeyKey -ge 0x30) -and ([int]$_cfg.hotkeyKey -le 0x5A)) { [int]$_cfg.hotkeyKey } else { 0x47 }
+# 显示格式:模型名 full=GLM-5.3-flashx / short=5.3-flashx;数字 compact=53.4M / full=53,452,123 / cn=5345.2万
+$script:modelNameFmt = if ($_cfg -and $_cfg.modelNameFmt) { [string]$_cfg.modelNameFmt } else { 'short' }
+$script:tokenFmt = if ($_cfg -and $_cfg.tokenFmt) { [string]$_cfg.tokenFmt } else { 'compact' }
+# 额度告警总开关(默认开);会话注入默认关——用户不一定想要对话被注入上下文;
+# 续跑总开关默认开(登记制本身已保证普通会话零打扰)
+$script:alertsEnabled = if ($_cfg -and $null -ne $_cfg.alertsEnabled) { [bool]$_cfg.alertsEnabled } else { $true }
+$script:sessionInject = if ($_cfg -and $null -ne $_cfg.sessionInject) { [bool]$_cfg.sessionInject } else { $false }
+$script:resumeGuard = if ($_cfg -and $null -ne $_cfg.resumeGuard) { [bool]$_cfg.resumeGuard } else { $true }
 $_cfg = $null
+Update-HotkeyHints  # 底部提示与实际注册的快捷键一致(此前 XAML 里写死 Ctrl+G,改键后不刷新)
 
 # —— 手动凭据兜底:查询失败时在面板里选服务商 + 粘贴 Key ——
 # 与 macOS HUD 共用 ~/.zcode/zcode-usage-manual.json,zcode-usage.mjs 的 CLI 查询同样读它
@@ -573,11 +660,27 @@ function Format-Reset($ms) {
   if (-not $parts) { $parts += '不到 1 分钟' }
   return ($parts -join ' ') + '后'
 }
-# Fmt.tokens:1.25 亿 / 9.2 万
+# Fmt.tokens,单位风格由 ⚙ 设置里的 $script:tokenFmt 决定:compact=1.25B/53.4M/9.2K;full=1,234,567;cn=1.25 亿/9.2 万
 function Format-Tokens([double]$v) {
-  if ($v -ge 1e8) { return '{0:F2} 亿' -f ($v / 1e8) }
-  if ($v -ge 1e4) { return '{0:F1} 万' -f ($v / 1e4) }
-  return '{0:N0}' -f $v
+  switch ($script:tokenFmt) {
+    'full' { return '{0:N0}' -f $v }
+    'cn' {
+      if ($v -ge 1e8) { return '{0:F2} 亿' -f ($v / 1e8) }
+      if ($v -ge 1e4) { return '{0:F1} 万' -f ($v / 1e4) }
+      return '{0:N0}' -f $v
+    }
+    default {
+      if ($v -ge 1e9) { return '{0:F2}B' -f ($v / 1e9) }
+      if ($v -ge 1e6) { return '{0:F1}M' -f ($v / 1e6) }
+      if ($v -ge 1e3) { return '{0:F1}K' -f ($v / 1e3) }
+      return '{0:N0}' -f $v
+    }
+  }
+}
+# 模型名显示,由 ⚙ 设置里的 $script:modelNameFmt 决定:full=GLM-5.3-flashx;short=5.3-flashx
+function Format-ModelName([string]$n) {
+  if ($script:modelNameFmt -eq 'full') { return $n }
+  return ($n -replace '^GLM-', '')
 }
 
 # —— 高峰期提醒:周一至周五 14:00–18:00 期间橙色横幅常驻,结束自动收起 ——
@@ -657,6 +760,7 @@ function Get-EffectiveThreshold([string]$key) {
   return $th
 }
 function Update-QuotaToast {
+  if (-not $script:alertsEnabled) { return }  # 总开关:关闭后不弹任何额度告警
   try {
     foreach ($l in $script:lastLimits) {
       $p = [double]$l.percentage
@@ -722,6 +826,7 @@ function Invoke-Refresh {
     $FLabel.Margin = '0,0,146,0'
     $BtnKey.Visibility = 'Visible'
     $FSub.Text = ''
+    $SpeedRow.Visibility = 'Collapsed'
     $PeakRow.Visibility = 'Collapsed'; $OffPeakRow.Visibility = 'Collapsed'
     return
   }
@@ -761,8 +866,45 @@ function Invoke-Refresh {
   } else {
     $PeakRow.Visibility = 'Collapsed'; $OffPeakRow.Visibility = 'Collapsed'
   }
-  $models = @($t.modelSummaryList | ForEach-Object { '{0} {1}' -f $_.modelName, (Format-Tokens ([double]$_.totalTokens)) })
+  # 模型名去掉 GLM- 前缀(FSub 已允许换行兜底),避免长名把用量数字挤出窗口
+  $models = @($t.modelSummaryList | ForEach-Object { '{0} {1}' -f (Format-ModelName $_.modelName), (Format-Tokens ([double]$_.totalTokens)) })
   $FSub.Text = $models -join ' · '
+  # 窗口宽度自适应(两步,以真实布局为准):
+  # 1) 用独立 NoWrap TextBlock 估一个初值(38 = Root Border 左右 Padding 18×2 + 边框 1×2,再留 10 富余);
+  # 2) 实测 FSub 是否仍换行(ActualHeight 超过单行≈17px),换行就逐步加宽,直到单行或屏幕上限 80%。
+  #    不盲信测量值——字体回退/度量差异会让估宽偏窄,末尾数字曾被挤到第二行。
+  $m = New-Object System.Windows.Controls.TextBlock
+  $m.FontSize = 10.5
+  $m.TextWrapping = 'NoWrap'
+  $m.Text = $FSub.Text
+  $m.Measure([Windows.Size]::new(10000, 100))
+  $need = [Math]::Ceiling($m.DesiredSize.Width) + 48
+  $cap = [Math]::Max(560, [Math]::Floor([System.Windows.SystemParameters]::WorkArea.Width * 0.8))
+  $win.Width = [Math]::Min($cap, [Math]::Max(372, $need))
+  $win.UpdateLayout()
+  $tries = 0
+  while (($FSub.ActualHeight -gt 19) -and ($win.Width -lt $cap) -and ($tries -lt 20)) {
+    $win.Width = [Math]::Min($cap, $win.Width + 16)
+    $win.UpdateLayout()
+    $tries++
+  }
+  # 加宽后若超出屏幕右缘,左移回工作区内
+  $wa = [System.Windows.SystemParameters]::WorkArea
+  if ($win.Left + $win.Width -gt $wa.Width) { $win.Left = [Math]::Max(0, $wa.Width - $win.Width - 12) }
+  # ⚡ 生成速度/缓存/首字:由 zcode-usage.mjs 自行计算(独立数据源)。速度优先用 sqlite 纯解码口径
+  # (输出/(时长-首字),与输入框状态条一致);sqlite 不可用时回退 JSONL 的含预填充口径
+  $ls = $d.localSpeed
+  if ($ls -and ($null -ne $ls.medianDecodeRate -or $null -ne $ls.medianRate -or $null -ne $ls.medianTtftMs)) {
+    $sbits = @()
+    if ($null -ne $ls.medianDecodeRate) { $sbits += ('⚡ 速度 {0:N0} tok/s' -f [double]$ls.medianDecodeRate) }
+    elseif ($null -ne $ls.medianRate) { $sbits += ('⚡ 速度 {0:N0} tok/s' -f [double]$ls.medianRate) }
+    if ($null -ne $ls.cacheHitRate) { $sbits += ('缓存 {0:F1}%' -f ([double]$ls.cacheHitRate * 100)) }
+    if ($null -ne $ls.medianTtftMs) { $sbits += ('首字 {0:F1}s' -f ([double]$ls.medianTtftMs / 1000)) }
+    $SpeedRow.Text = $sbits -join ' · '
+    $SpeedRow.Visibility = 'Visible'
+  } else {
+    $SpeedRow.Visibility = 'Collapsed'
+  }
   # 本机/账号对比数据(💹 悬浮弹窗用)
   $script:lastLocal = $d.localUsage
   $script:lastTotalTokens = [double]$t.totalTokensUsage
@@ -778,7 +920,7 @@ function Show-Setup {
   $Sep.Visibility = 'Collapsed'
   $FooterGrid.Visibility = 'Collapsed'
   $PeakRow.Visibility = 'Collapsed'; $OffPeakRow.Visibility = 'Collapsed'
-  $FSub.Visibility = 'Collapsed'; $Hint.Visibility = 'Collapsed'
+  $FSub.Visibility = 'Collapsed'; $SpeedRow.Visibility = 'Collapsed'; $Hint.Visibility = 'Collapsed'
   $BtnKey.Visibility = 'Collapsed'
   # 回填:域名按已存 apiBase 预选;Key 不回显(安全),已存时才可清除
   $mc = Read-ManualCred
@@ -842,7 +984,7 @@ function Show-Settings {
   foreach ($r in $rows) { $r.Panel.Visibility = 'Collapsed' }
   $Sep.Visibility = 'Collapsed'; $FooterGrid.Visibility = 'Collapsed'
   $PeakRow.Visibility = 'Collapsed'; $OffPeakRow.Visibility = 'Collapsed'
-  $FSub.Visibility = 'Collapsed'; $Hint.Visibility = 'Collapsed'
+  $FSub.Visibility = 'Collapsed'; $SpeedRow.Visibility = 'Collapsed'; $Hint.Visibility = 'Collapsed'
   $BtnKey.Visibility = 'Collapsed'
   Hide-Setup
   $cfg = Read-SettingsJson
@@ -858,7 +1000,18 @@ function Show-Settings {
   for ($i = 0; $i -lt $script:modChoices.Count; $i++) { if ($script:modChoices[$i].V -eq $curMods) { $mi = $i } }
   $SetHotkeyMod.SelectedIndex = $mi
   $SetHotkeyKey.SelectedIndex = [Math]::Max(0, [Array]::IndexOf($script:keyVks, $curKeyVk))
+  # 显示格式回填:模型名 full/short,数字 compact/full/cn
+  $SetModelName.SelectedIndex = if ($script:modelNameFmt -eq 'full') { 0 } else { 1 }
+  $SetNumFmt.SelectedIndex = switch ($script:tokenFmt) { 'full' { 0 } 'cn' { 2 } default { 1 } }
+  # 开关回填:告警总开关(联动组内 阈值/注入/续跑 可用性)与 会话注入(默认关)、续跑总开关
+  $SetAlertsOn.IsChecked = $script:alertsEnabled
+  $AlertsPanel.IsEnabled = $script:alertsEnabled
+  $SetSessionInject.IsEnabled = $script:alertsEnabled
+  $SetResumeGuard.IsEnabled = $script:alertsEnabled
+  $SetSessionInject.IsChecked = $script:sessionInject
+  $SetResumeGuard.IsChecked = $script:resumeGuard
   $SetHint.Text = ''
+  $win.Width = 372  # 设置视图内容窄,恢复默认宽;回到数据视图时按模型名单行宽度自适应
   $SettingsPanel.Visibility = 'Visible'
 }
 function Save-Settings {
@@ -872,6 +1025,13 @@ function Save-Settings {
   }
   $mods = $script:modChoices[[Math]::Max(0, $SetHotkeyMod.SelectedIndex)].V
   $vk = $script:keyVks[[Math]::Max(0, $SetHotkeyKey.SelectedIndex)]
+  # 显示格式:模型名(0=full,1=short);数字(0=full,1=compact,2=cn)
+  $modelNameFmt = if ($SetModelName.SelectedIndex -eq 0) { 'full' } else { 'short' }
+  $tokenFmt = switch ([Math]::Max(0, $SetNumFmt.SelectedIndex)) { 0 { 'full' } 2 { 'cn' } default { 'compact' } }
+  # 开关:告警总开关(联动阈值区);会话注入(默认关,由 SessionStart 钩子读配置决定是否注入);续跑总开关
+  $alertsEnabled = [bool]$SetAlertsOn.IsChecked
+  $sessionInject = [bool]$SetSessionInject.IsChecked
+  $resumeGuard = [bool]$SetResumeGuard.IsChecked
   # 合并保留 guard 的其它配置键(如 warnIntervalMinutes)
   $cfg = Read-SettingsJson
   $obj = @{
@@ -881,6 +1041,11 @@ function Save-Settings {
     refreshMinutes = $refresh
     hotkeyModifiers = $mods
     hotkeyKey = $vk
+    modelNameFmt = $modelNameFmt
+    tokenFmt = $tokenFmt
+    alertsEnabled = $alertsEnabled
+    sessionInject = $sessionInject
+    resumeGuard = $resumeGuard
   }
   try {
     # -ErrorAction Stop:全局 SilentlyContinue 会吞掉非终止错误,导致"看起来保存了其实没写"
@@ -893,6 +1058,14 @@ function Save-Settings {
   # 定时器:改间隔即生效
   $script:refreshMinutes = $refresh
   $timer.Interval = [TimeSpan]::FromMinutes($refresh)
+  # 显示格式:改完即生效(保存后的 Invoke-Refresh 会按新格式重渲染;💹 弹窗悬停时重算)
+  $script:modelNameFmt = $modelNameFmt
+  $script:tokenFmt = $tokenFmt
+  # 开关:告警总开关立即生效;会话注入由 SessionStart 钩子每次启动时读配置文件,下次会话生效;
+  # 续跑总开关由 Stop 钩子读配置,同样下次收尾生效
+  $script:alertsEnabled = $alertsEnabled
+  $script:sessionInject = $sessionInject
+  $script:resumeGuard = $resumeGuard
   # 快捷键:解旧注新;被占用则回退原键并留在面板提示
   if ($mods -ne $script:hotkeyModifiers -or $vk -ne $script:hotkeyKey) {
     $ok = $false
@@ -909,6 +1082,7 @@ function Save-Settings {
       return
     }
   }
+  Update-HotkeyHints  # 快捷键可能已变,底部提示同步
   Hide-Settings
   Invoke-Refresh
 }
@@ -925,6 +1099,13 @@ $BtnSettings.Add_MouseLeftButtonUp({ Show-Settings })
 $BtnSaveSettings.Add_MouseEnter({ $BtnSaveSettings.Background = Brush '#3D9BFF' })
 $BtnSaveSettings.Add_MouseLeave({ $BtnSaveSettings.Background = Brush '#0A84FF' })
 $BtnSaveSettings.Add_MouseLeftButtonUp({ Save-Settings })
+# 额度告警总开关联动:取消勾选时,组内下面的阈值/注入/续跑全部置灰锁定(实时预览,保存才落盘)
+$SetAlertsOn.Add_Click({
+  $on = [bool]$SetAlertsOn.IsChecked
+  $AlertsPanel.IsEnabled = $on
+  $SetSessionInject.IsEnabled = $on
+  $SetResumeGuard.IsEnabled = $on
+})
 $BtnCancelSettings.Add_MouseLeftButtonUp({ Hide-Settings; Invoke-Refresh })
 $BtnRefresh.Add_MouseEnter({ $BtnRefresh.Foreground = Brush $script:theme.Label })
 $BtnRefresh.Add_MouseLeave({ $BtnRefresh.Foreground = Brush $script:theme.Secondary })
@@ -988,7 +1169,7 @@ $win.Add_SourceInitialized({
         $LPct.Text = '本机 {0}%' -f $pct
         $LCalls.Text = '{0:N0} 次' -f [double]$script:lastLocal.calls
         $LIO.Text = '{0} / {1} / {2}' -f (Format-Tokens ([double]$script:lastLocal.inputTokens)), (Format-Tokens ([double]$script:lastLocal.outputTokens)), (Format-Tokens $loc)
-        $ms = @($script:lastLocal.byModel.PSObject.Properties | ForEach-Object { '{0} {1}' -f ($_.Name -replace '^GLM-[0-9.]+-', ''), (Format-Tokens ([double]$_.Value.tokens)) })
+        $ms = @($script:lastLocal.byModel.PSObject.Properties | ForEach-Object { '{0} {1}' -f (Format-ModelName $_.Name), (Format-Tokens ([double]$_.Value.tokens)) })
         if ($ms.Count) { $LModels.Text = $ms -join ' · '; $LModelsRow.Visibility = 'Visible' } else { $LModelsRow.Visibility = 'Collapsed' }
         $LTotalVal.Text = '{0:N0} 次 · {1}' -f [double]$script:lastTotalCalls, (Format-Tokens $tot)
         $w = [Math]::Round(282 * [Math]::Min(100, [Math]::Max(0, $pct)) / 100)

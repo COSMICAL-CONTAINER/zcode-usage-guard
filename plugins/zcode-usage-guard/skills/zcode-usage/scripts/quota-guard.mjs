@@ -70,6 +70,10 @@ function loadSettings() {
     threshold: globalTh,
     thresholds: overrides,
     warnIntervalMinutes: warnMin > 0 ? warnMin : DEFAULT_WARN_INTERVAL_MIN,
+    // 告警总开关:默认开;关闭后 UserPromptSubmit 不再注入额度警报(Stop 的登记续跑协议不受影响)
+    alertsEnabled: s.alertsEnabled !== false,
+    // 额度守卫自动续跑总开关:默认开;只影响「登记过」的会话在 Stop 收尾时是否布置自动续跑
+    resumeGuard: s.resumeGuard !== false,
   };
 }
 
@@ -131,7 +135,7 @@ async function main() {
     } catch { }
   }
 
-  const { threshold, thresholds, warnIntervalMinutes } = loadSettings();
+  const { threshold, thresholds, warnIntervalMinutes, alertsEnabled, resumeGuard } = loadSettings();
   const opted = isOptedIn(optinFile, sessionId);
   debugLog(`session=${sessionId || '未知'} 登记=${opted ? '是' : '否'}`);
   if (!opted) { debugLog('pass: 会话未登记 quota-guard'); return; } // 未登记的对话零打扰
@@ -161,6 +165,8 @@ async function main() {
   const poolList = over.map((p) => `${p.label || p.key} ${Number(p.usedPct).toFixed(0)}%`).join('、');
 
   if (event === 'Stop') {
+    // 权限层级:额度告警总开关(alertsEnabled)关闭时,续跑同样锁定且不生效,无论 resumeGuard 勾选状态
+    if (!resumeGuard || !alertsEnabled) { debugLog(`pass: 续跑不生效(resumeGuard=${resumeGuard} alertsEnabled=${alertsEnabled})`); return; }
     const flag = readJson(flagFile);
     if (bindingReset > 0 && flag && Number(flag.armedForResetAt) >= bindingReset) { debugLog('pass: flag 已布置,放行'); return; }
     // Stop 的拦截必须走 decision:"block"(ZCode 源码对 Stop 的 block 路径:
@@ -177,7 +183,8 @@ async function main() {
     return;
   }
 
-  // UserPromptSubmit:节流告警
+  // UserPromptSubmit:节流告警(总开关关闭时不注入,零打扰)
+  if (!alertsEnabled) { debugLog('pass: 告警总开关关闭'); return; }
   const now = Date.now();
   const last = readJson(warnFile);
   if (last && now - Number(last.at || 0) < warnIntervalMinutes * 60_000) { debugLog('pass: 告警节流窗口内'); return; }

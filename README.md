@@ -1,73 +1,52 @@
-# zcode-usage-guard — 0.2.0
+# zcode-usage-guard — 0.3.0
 
-> **本 fork 新增:额度监控与无人值守续跑(quota-guard)**
-> 在上游「查询 + 悬浮窗显示」之上增加监控层,详见下方 [quota-guard 监控层](#quota-guard-监控层本-fork-新增)。
-> 本 fork:https://github.com/COSMICAL-CONTAINER/zcode-usage-guard
-> 基础功能与上游 [ssbh163/ZCode-Usage](https://github.com/ssbh163/ZCode-Usage)(MIT)一致,致谢原作者;
-> 本 fork 的新增代码同样以 **MIT** 协议发布(见文末「协议与致谢」)。
+> 在上游 [ssbh163/ZCode-Usage](https://github.com/ssbh163/ZCode-Usage)(MIT)的「GLM Coding Plan 查询 + 桌面悬浮窗」基础上,本 fork 新增三大块:
+> **⚡ 生成速度行**(纯解码 tok/s · 缓存 · 首字,独立数据源)、**⚙ 分组式设置面板**(格式化选项 + 权限层级)、**额度监控与无人值守续跑(quota-guard)**。
+> 本仓库:https://github.com/COSMICAL-CONTAINER/zcode-usage-guard
+> 上游继承的功能在文末[「上游功能速览」](#上游功能速览)一段带过;本 fork 的新增代码同样以 **MIT** 协议发布(见文末「协议与致谢」)。
 
-支持API KEY与账号登录两种方式查询 GLM Coding Plan 额度(当日高峰/非高峰拆分),悬浮窗展示:
+悬浮窗展示:
 
 | 显示项 | 内容 |
 |---|---|
 | ⏱ 5 小时 Prompt 池 | 已用百分比、重置倒计时 |
-| 📅 每周额度 | 已用百分比、重置时间 |
+| 📅 每周额度 | 已用百分比、重置时间(套餐含每周额度时显示) |
 | 🔧 MCP 工具调用(每月) | 已用/总量、各工具明细 |
-| 📊 当日用量 | 调用次数、token 消耗、高峰期(工作日 14–18 时)/非高峰期拆分、按模型汇总 |
+| 📊 当日用量 | 调用次数、token 消耗(格式可选)、高峰期(工作日 14–18 时)/非高峰期拆分、按模型汇总(模型名格式可选) |
+| ⚡ 生成速度行 | 纯解码 tok/s · 缓存命中率 · 首字延迟(Windows 悬浮窗;macOS HUD 暂未包含) |
 | ⚡ 高峰期提醒 | 工作日 14:00–18:00 橙色横幅常驻:剩余时长倒计时 + 时段进度条,结束自动收起 |
 
 ## 效果预览
 
-桌面悬浮窗(Mac和Windows 版截图),深浅两套配色自动跟随 ZCode 外观设置切换:
+Windows 悬浮窗(深色主题,随 ZCode 外观自动切换;v0.3.0 实拍):
 
-| 深色 | 浅色 |
+| 悬浮窗:速度/缓存/首字 + 按模型用量 | ⚙ 设置面板:分组边框 + 每项 ? 说明 + 权限层级 |
 |:---:|:---:|
-| <img src="assets/mac.jpg" alt="浅色主题下的悬浮窗" width="750" /> | <img src="assets/windows.png" alt="深色主题下的悬浮窗" width="853" /> |
+| <img src="assets/windows-speed.png" alt="悬浮窗速度行" width="415" /> | <img src="assets/windows-settings.png" alt="分组式设置面板" width="372" /> |
+
+macOS 为社区移植的原生 HUD(浅色;下图为上游作者的旧版截图,版式以实际编译为准——**速度行与分组设置面板目前是 Windows 版功能**,HUD 暂未同步):
+
+<img src="assets/mac.jpg" alt="macOS HUD 悬浮窗(上游旧版截图)" width="750" />
 
 进度条颜色随用量变化:绿色(充足)→ 橙色(≥60%)→ 红色(≥85%)。对话内 `/zcode-usage-guard:usage` 命令和终端卡片输出同样的数据。
 
 ## 前提条件
 
 - [ZCode](https://zcode.z.ai) 桌面版
-- 已在 ZCode 中配置智谱 Coding Plan 的 **API Key**或**账号**登录(设置 → 模型,插件自动读取,无需手动填;没配也不影响安装,见下方[兜底配置](#查询失败-api-key-手动配置兜底))
-- Node.js ≥ 18(终端输入 `node -v` 检查)
+- 已在 ZCode 中配置智谱 Coding Plan 的 **API Key** 或**账号**登录(设置 → 模型,插件自动读取,无需手动填;没配也不影响安装,查询失败时悬浮窗有一键兜底,见[上游功能速览](#上游功能速览))
+- Node.js ≥ 18(终端输入 `node -v` 检查);悬浮窗速度行的「首字」与纯解码口径需 Node ≥ 22.5,不满足时自动降级(速度改用含预填充口径、首字隐藏),其余功能不受影响
 
 ## 安装
 
-### 方式 A · 从 GitHub 安装(推荐)
-
-1. ZCode 左侧栏 → **插件市场** → **发现** 页
-2. 点右上角 **+** 添加插件市场,选择 **GitHub 仓库**,填入本仓库地址
-3. 在市场列表中找到 **ZCode Usage**,点 **获取/安装**
-
-> 国内网络克隆失败时,先设置环境变量 `ZCODE_HTTP_PROXY=http://host:port` 再重试(ZCode 只认这个变量,不吃普通的 http_proxy)。
-
-### 方式 B · 本地安装
-
-1. 下载本仓库(绿色按钮 Code → Download ZIP)并解压
-2. ZCode → 插件市场 → 发现 → **+** → **本地目录**,选中解压后的**仓库根目录**(即包含 `marketplace.json` 的那一层)
-3. 安装 **ZCode Usage**
-
-### 方式 C · 只用脚本,不装插件
-
-下载 [zcode-usage.mjs](plugins/zcode-usage-guard/skills/zcode-usage/scripts/zcode-usage.mjs)(悬浮窗需连同 [zcode-usage-widget.ps1](plugins/zcode-usage-guard/skills/zcode-usage/scripts/zcode-usage-widget.ps1) 一起下载,建议直接下载整个 zip),运行:
-
-```bash
-node zcode-usage.mjs --install
-```
-
-一条命令装完全部:查询脚本、`/usage` 命令、桌面悬浮窗(**装完立即弹出**)、登录自启。卸载同样一条命令:`node zcode-usage.mjs --uninstall`。
+- **方式 A · 插件市场(推荐)**:ZCode 左侧栏 → 插件市场 → 发现 → 右上角 **+** → 选择 **GitHub 仓库**,填入本仓库地址 → 列表中找到 **ZCode Usage** → 获取/安装。国内网络克隆失败时,先设置环境变量 `ZCODE_HTTP_PROXY=http://host:port` 再重试(ZCode 只认这个变量,不吃普通的 http_proxy)
+- **方式 B · 本地目录**:下载本仓库解压 → 插件市场 → **+** → **本地目录**,选中包含 `marketplace.json` 的仓库根目录 → 安装
+- **方式 C · 只用脚本,不装插件**:下载 [zcode-usage.mjs](plugins/zcode-usage-guard/skills/zcode-usage/scripts/zcode-usage.mjs)(悬浮窗需连同 [zcode-usage-widget.ps1](plugins/zcode-usage-guard/skills/zcode-usage/scripts/zcode-usage-widget.ps1),建议直接下整个 zip),运行 `node zcode-usage.mjs --install` 一条命令装完(查询脚本、`/usage` 命令、桌面悬浮窗、登录自启,装完立即弹出);卸载 `node zcode-usage.mjs --uninstall`
 
 ## 使用
 
 ### 1. ZCode 对话内
 
-安装插件后**新开一个对话**(命令在会话启动时加载):
-
-- 输入 `/zcode-usage-guard:usage`
-- 或直接问:"查一下 Coding Plan 用量""5 小时池还剩多少""周额度什么时候重置"
-
-助手会运行脚本并把结果整理成表格。
+安装插件后**新开一个对话**(命令在会话启动时加载),输入 `/zcode-usage-guard:usage`,或直接问:"查一下 Coding Plan 用量""5 小时池还剩多少""周额度什么时候重置",助手会运行脚本并整理成表格。
 
 ### 2. 终端直接运行
 
@@ -79,142 +58,54 @@ node ~/.zcode/scripts/zcode-usage.mjs --json     # 原始 JSON
 插件安装者也可以直接用插件缓存里的脚本(免 --install):
 
 ```bash
-node "$(ls -d "$HOME/.zcode/cli/plugins/cache"/*/zcode-usage/*/skills/zcode-usage/scripts/zcode-usage.mjs | sort -V | tail -1)"
+node "$(ls -d "$HOME/.zcode/cli/plugins/cache"/*/zcode-usage-guard/*/skills/zcode-usage/scripts/zcode-usage.mjs | sort -V | tail -1)"
 ```
 
 ### 3. 桌面悬浮窗(按设备自动选择 UI,随插件启停)
 
-插件自带 **两套悬浮窗 UI**,SessionStart hook 会按当前设备自动选择,无需任何手动配置;**卸载插件后悬浮窗自动退出**,不残留开机自启或后台进程。
+SessionStart hook 按当前设备自动选择 UI:**Windows** 为 WPF 磨砂玻璃卡片,**macOS** 为原生 HUD(编译一次:进插件目录 `macos/` 执行 `bash build.sh`),其他系统无悬浮窗(仅命令/技能/注入)。**卸载插件后悬浮窗自动退出**,不残留开机自启或后台进程。
 
-| 设备 | UI | 说明 |
-|---|---|---|
-| **Windows** | WPF 磨砂玻璃卡片(配色与 ZCode 外观同步) | Ctrl+G 显示/隐藏;启动 ZCode / 新建会话自动唤回;ZCode 完全退出时随之退出;✕ 隐藏、右键退出 |
-| **macOS** | 原生 HUD 面板(社区移植的 ZCodeUsageHUD) | 编译一次即可:进入插件目录 `macos/` 执行 `bash build.sh`,生成 `ZCodeUsageHUD.app`;之后每次会话自动在后台打开 |
-| 其他系统 | (无悬浮窗,仅命令/技能/注入) | — |
-
-两套 UI 数据口径一致(同一个查询脚本),视觉各自贴合系统原生质感。
-
-- Windows 版:右上角 **✕** 只是隐藏(进程驻留),**右键菜单 → 退出**彻底关闭;重复启动自动去重;位置记忆
-- Windows 悬浮窗配色**与 ZCode 外观主题保持一致**(每 2 秒探测 ZCode 主窗口实际配色,深浅同步切换),不读写任何 Windows 主题设置;`GLM_WIDGET_THEME=light|dark` 可强制指定
-- macOS 版:菜单栏有 ⚡ 兜底图标;详见 `macos/README.md`
+- 全局热键显示/隐藏(默认 Ctrl+G,⚙ 设置可改键);冷启动自动拉起、新会话自动唤回(唤醒文件机制,250ms 内响应)、单实例去重、位置记忆
+- 配色与 ZCode 外观主题保持一致(每 2 秒探测 ZCode 主窗口实际配色),不读写 Windows 主题设置;`ZCODE_WIDGET_THEME=light|dark` 可强制指定(调试用)
+- 右上角 **✕** 只是隐藏(进程驻留),**右键菜单 → 退出**彻底关闭
 - API Key 失效时面板明确提示,修复后自动恢复
 
-**悬浮窗什么时候会出现?** 自动弹出只挂在有可靠信号的时机,其余交给手动:
+### 4. ⚡ 生成速度/缓存/首字(本 fork 新增)
 
-| 场景 | 行为 |
-|---|---|
-| 冷启动(会话开始时没有实例) | 自动拉起并显示 |
-| 新建会话(实例已在运行) | 自动唤回显示 |
-| 切换会话 | 不动作——窗口常驻最上层,本来就在屏幕上 |
-| 手动收起(✕ / Ctrl+G) | 保持收起,Ctrl+G 随时唤回;下一个新会话自动弹回 |
-| ZCode 完全退出 / 插件卸载 | 悬浮窗随之退出 |
+当日用量下方常驻一行:`⚡ 速度 135 tok/s · 缓存 99.5% · 首字 3.9s`。**完全独立的数据源**——直接读本机 ZCode 的使用记录(rollout 模型 I/O 日志 + sqlite 用量库),零第三方依赖、零网络请求,别的机器装完即有(无数据时该行自动隐藏)。
 
-实现上:新会话唤回由 hook touch 唤醒文件(`~/.zcode/scripts/zcode-usage-widget.wake`,运行中的实例 250ms 内响应)完成;手动再次运行脚本则走命名事件唤回已有窗口。单实例互斥量、命名事件与唤醒文件都在耗时初始化(Add-Type/XAML)之前就绪,不会因主实例还在启动而丢信号。
+计算公式(全部保留,最近 10 次调用统计):
 
-> 不装插件只想要 Windows 悬浮窗?用下方"方式 C"的 `--install` 独立安装(带 Windows 登录自启),用 `--uninstall` 一键完整卸载。
+| 指标 | 公式 | 数据源 |
+|---|---|---|
+| 纯解码速度(展示口径) | `输出tokens ÷ ((总时长ms − 首字延迟ms) / 1000)`,取中位数 | sqlite `model_usage` |
+| 含预填充速度(回退口径) | `输出tokens ÷ (总时长ms / 1000)`,取中位数 | rollout JSONL |
+| 缓存命中率 | `Σ cache_read ÷ Σ input_tokens` | sqlite / JSONL |
+| 首字延迟 | `median(time_to_first_token_ms)` | sqlite 独有 |
 
-### 4. 新会话自动注入
+两个口径都是真的:纯解码剔除等首字的时间,反映模型真实吐字吞吐(推荐);含预填充被首字延迟摊薄,数字偏低。纯解码口径直接读 ZCode 的 sqlite 用量库——基于同一数据库的工具(如输入框下方的状态条类插件)会算出一样的数字;Node < 22.5 或库打不开时自动回退 JSONL 口径(首字隐藏),不报错。
 
-插件自带的 SessionStart hook 会在每个新对话开头注入一行额度摘要,无需任何配置。卸载插件即停止注入。
+### 5. 新会话自动注入(默认关闭)
 
-## 查询失败?API Key 手动配置兜底
+SessionStart hook 支持在每个新对话开头注入一行额度摘要(5 小时池/每周/MCP 余量 + 重置倒计时),让模型主动感知额度。**v0.3.0 起默认关闭**——不是每个用户都希望对话被注入上下文;在悬浮窗 ⚙ 设置勾选「会话启动注入用量摘要」并保存后,下一个新会话开始生效。卸载插件即彻底停止。
 
-自动探测不到凭据、悬浮窗显示「⚠️ 查询失败」时(常见于:只在开放平台单独办了套餐、用的是启动版/自定义 provider、或 ZCode 配置被移动),**不用翻配置文件**——Windows 和 macOS 悬浮窗都内置了一键兜底。点失败页右下角的 **🔑 配置 API Key** 按钮(macOS 也可从菜单栏 ⚡ 图标进入,Windows 也可从右键菜单进入),面板内直接选服务商、粘贴 Key,保存立即查询:
+### 6. ⚙ 设置面板(分组式)
 
-<img src="assets/key-setup-flow.png" alt="API Key 手动配置流程:① 查询失败 → ② 面板内配置(服务商下拉+粘贴 Key) → ③ 保存成功" width="900" />
+点悬浮窗右上角 **⚙** 打开,三组设置各自带圆角边框,每项名字后有蓝色 **?** 悬浮说明:
 
-- **服务商下拉二选一**:智谱开放平台(`open.bigmodel.cn`)/ 智谱国际(`api.z.ai`)
-- **只存本机**:`~/.zcode/zcode-usage-manual.json`。Windows 悬浮窗、macOS HUD、终端 CLI 三端共用这一份——悬浮窗里配一次,对话内 `/usage` 和终端 `node ~/.zcode/scripts/zcode-usage.mjs` 也能直接用
-- **安全**:Key 输入框不回显;传给查询脚本走环境变量而非命令行参数,`ps` 进程列表里看不到
-- **可反悔**:「清除已存 Key」删掉手动凭据,恢复自动探测 ZCode 配置
+| 分组 | 设置项 | 说明 |
+|---|---|---|
+| **显示格式** | 模型名 | 完整 `GLM-5.3-flashx` / 短名 `5.3-flashx` |
+| | 用量数字 | 紧凑 `53.4M` / 完整 `53,452,123` / 中文 `5345.2万`,全窗口统一生效 |
+| **常规** | 自动刷新间隔 | 1/5/10/15/30 分钟 |
+| | 唤出快捷键 | 全局热键改键(冲突自动回退;底部提示与 ✕ 悬停提示同步更新) |
+| **额度告警**(总开关) | 三池阈值 | 80/85/90/95% 或关闭 |
+| | 会话启动注入用量摘要 | 默认关,见[上文](#5-新会话自动注入默认关闭) |
+| | 对话收尾自动续跑(登记制) | Stop 钩子收尾协议,见 [quota-guard 监控层](#quota-guard-监控层本-fork-新增) |
 
-### 自动探测链路(找不到 Key 时按这个顺序排查)
+**权限层级**:「额度告警」总开关关闭时,组内下面的阈值告警、会话注入、自动续跑**三项全部锁定且不生效**(无论各自勾选状态)——一键静默所有额度相关的主动介入;重新勾选后各按其勾选状态恢复。窗口宽度还会随模型拆分行自适应(完整模型名 + 中文数字 + 多模型叠加也不换行,上限屏幕 80%)。
 
-脚本按以下顺序自动找 Key,靠前的优先:
-
-1. `--key` / `--base` 运行参数
-2. 环境变量 `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_BASE_URL`(只设了 `ZAI_API_KEY` 时默认国际站域名)
-3. 手动配置文件 `~/.zcode/zcode-usage-manual.json`(上面的 🔑 界面写入)
-4. ZCode 配置 `~/.zcode/v2/config.json`(兼容 `~/.zcode/config.json`):扫描**全部**已启用 provider(自定义 provider 也能识别,凭据字段兼容 `options.apiKey` 与顶层 `apiKey` 两种写法),按 编程套餐 > 通用 排序;仅接受 `open.bigmodel.cn` / `api.z.ai` 两个官方域名
-
-> **启动版套餐(Start Plan)用户**:启动版使用的 `zcode.z.ai` 域名没有用量监控接口,自动探测会**主动跳过**它——避免拿它的凭据查出莫名其妙的 404。悬浮窗显示「未找到 Key」属于预期行为,点 🔑 手动配置即可。
-
-## 隐私与安全
-
-- 插件**不含任何密钥**。脚本运行时从本机 ZCode 配置(`~/.zcode/v2/config.json`)读取你自己的 API Key
-- 请求只发往智谱官方域名(`open.bigmodel.cn` / `api.z.ai`),不经过任何第三方服务器
-- 查询走官方监控接口,不消耗 prompt 额度
-
-## 常见问题
-
-**Q:提示"未找到 Coding Plan API Key"?**
-最省事:点悬浮窗失败页的 **🔑 配置 API Key** 手动填写(见[兜底配置](#查询失败-api-key-手动配置兜底),三端共用);或先在 ZCode 设置里配好智谱 Coding Plan 的 API Key;或设置环境变量 `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_BASE_URL`,或运行时传 `--key <apiKey> --base <baseURL>`。
-
-**Q:HTTP 401?**
-API Key 无效或过期,去智谱开放平台重新获取。
-
-**Q:不用 ZCode,能在 Claude Code 里用吗?**
-可以。设置 `ANTHROPIC_AUTH_TOKEN=https://open.bigmodel.cn/api/anthropic` 对应的环境变量后直接跑脚本(国际站用 `https://api.z.ai/api/anthropic`)。
-
-**Q:Windows 悬浮窗按 Ctrl+G 没反应?**
-两种情况:①悬浮窗进程没在运行(它只随 ZCode 存活,ZCode 完全退出后自退;重开 ZCode 或新开一个对话即恢复);②全局热键被其他软件占用(截图/翻译工具等)——此时悬浮窗底部会显示橙色 ⚠ 提示,可关闭占用软件或在脚本顶部修改 `$hotkeyModifiers`/`$hotkeyKey` 换键。
-
-**Q:新会话开始时悬浮窗偶尔不自动弹出?**
-本版本已修复——旧版的唤醒事件创建得太晚,主实例启动头几秒内到达的信号会被静默丢弃。若升级后仍遇到,检查 `~/.zcode/scripts/` 目录是否存在且可写;悬浮窗没在运行时,新开一个对话即会重新拉起。
-
-**Q:额度数字和网页后台对不上?**
-查询接口是智谱未公开文档的监控接口,官方若调整字段,更新脚本中的映射即可(`TOKENS_LIMIT` unit=3 是 5 小时池、unit=6 是每周,`TIME_LIMIT` 是 MCP 每月)。
-
-## 目录结构
-
-```
-zcode-usage-plugin/                       ← 市场仓库根目录
-├── .zcode-plugin/marketplace.json      ← 市场清单
-├── marketplace.json                    ← 根目录副本(兼容不同读取位置)
-└── plugins/zcode-usage-guard/                ← 插件本体
-    ├── .zcode-plugin/plugin.json
-    ├── hooks/hooks.json                ← SessionStart:按设备拉起悬浮窗 + 注入用量摘要
-    ├── commands/usage.md               ← /zcode-usage-guard:usage 命令
-    ├── macos/                          ← macOS 原生悬浮窗(ZCodeUsageHUD.swift + build.sh)
-    └── skills/zcode-usage/
-        ├── SKILL.md
-        └── scripts/
-            ├── zcode-usage.mjs           ← 查询脚本(零依赖,支持 --install/--uninstall)
-            ├── zcode-usage-widget.ps1    ← Windows 悬浮窗(磨砂玻璃卡片)
-            ├── widget-launch.mjs       ← 跨平台启动器(按设备分发;新会话 touch 唤醒文件唤回已有实例)
-            └── widget-launch.vbs       ← Windows 启动器(vbs,免黑窗)
-```
-
-## 卸载
-
-**插件方式**(推荐,卸载即全清):
-
-1. ZCode 设置 → 插件管理 → 已安装 → ZCode Usage → 卸载
-2. 完成。悬浮窗会在数秒内检测到插件缓存被移除而自动退出,会话注入同时停止,不残留开机自启、进程或配置
-
-**独立脚本方式**(曾运行过 `--install` 的用户):
-
-```bash
-node zcode-usage.mjs --uninstall
-```
-
-一键清除全部:悬浮窗进程、开机自启、`~/.zcode/scripts/` 下的脚本、`/usage` 命令、cli 配置中的 hook。
-
-## 更新日志
-
-- **0.0.6**:修复当日高峰/非高峰拆分。改为对当日查询自带的小时序列(x_time/tokensUsage)求和工作日 14:00–17:59 小时桶,不再单独发峰窗区间请求——官方监控接口对当天的区间查询会把 endTime 截到当前时刻(晚间查询高峰=全天、非高峰=0),且区间 endTime 桶为包含语义(多算 18–19 点)。顺带少一次请求。
-- **0.0.5**:修复 Windows 悬浮窗「🔑 配置 API Key」按钮点击无反应。按钮未加入窗口拖拽排除名单,点击时 MouseLeftButtonDown 先触发 DragMove,系统移动循环吞掉 MouseLeftButtonUp,打开配置表单的处理器永不执行;现与 ↻/✕ 同样放行(命中文字或内边距均有效)。
-- **0.0.4**:消除查询脚本双副本。`macos/scripts/zcode-usage.mjs` 不再手工维护,`build.sh` 编译时自动从 `skills` 正本同步(gitignore 防止生成物入库);独立分享出去的 macos 目录找不到正本时沿用现有副本。此前两份脚本已出现输出文案漂移(副本缺少「已用」前缀),今后由构建流程保证一致。
-- **0.0.3**:新增 API Key 手动配置兜底。Windows/macOS 悬浮窗查询失败时,面板内直接选服务商(bigmodel/z.ai)+ 粘贴 Key,保存立即生效;三端(Windows 悬浮窗/macOS HUD/CLI)共用 `~/.zcode/zcode-usage-manual.json`,悬浮窗配一次终端也能查。凭据自动探测加固:扫描全部已启用 provider(不再只认固定 4 个名字,自定义 provider 可识别)、兼容 `~/.zcode/config.json` 布局与 `provider`/`providers` 键、兼容 UTF-8 BOM、主动跳过无监控接口的 `zcode.z.ai`(启动版)并给出明确引导;手动凭据以环境变量传给查询脚本,不出现在命令行参数。
-- **0.0.2**:品牌更名 glm-usage → zcode-usage。
-- **0.0.1**:悬浮窗唤回机制重做。单实例互斥量、命名事件与唤醒文件改为在 Add-Type/XAML 等耗时初始化之前建立;新会话通过唤醒文件毫秒级唤回,手动再次运行脚本走命名事件并带重试;hook 拉起的重复实例约 300ms 静默退出。修复新会话唤回不稳定(启动竞态丢信号)的问题。Windows 悬浮窗配色改为与 ZCode 外观主题保持一致(探测 ZCode 主窗口实际配色,深浅同步,`GLM_WIDGET_THEME` 可强制),不读写 Windows 主题设置。
-- 更早版本见提交历史。
-
-## License
-
-MIT
-
----
+以上设置持久化在 `~/.zcode/scripts/quota-guard-settings.json`(与 quota-guard 共用一份)。
 
 ## quota-guard 监控层(本 fork 新增)
 
@@ -236,12 +127,14 @@ MIT
 }
 ```
 
-### 控制面:两个 hook
+### 控制面:两个 hook + 权限层级
 
-| 事件 | 行为 |
-|---|---|
-| `UserPromptSubmit` | 任一池 ≥ 阈值 → 注入一行警告(默认 10 分钟节流),否则静默 |
-| `Stop` | 超阈值且未布置续跑 → `{"decision":"block","reason":"<收尾协议>"}` 拦住会话,强制模型写交接文件并用 ZCode 定时自动化布置「重置 +5 分钟」的一次性续跑任务;`resume-armed.flag` 按重置周期放行,周期翻篇自动过期 |
+| 事件 | 行为 | 受哪个开关管 |
+|---|---|---|
+| `UserPromptSubmit` | 任一池 ≥ 阈值 → 注入一行警告(默认 10 分钟节流),否则静默 | `alertsEnabled` |
+| `Stop` | 已登记的会话超阈值且未布置续跑 → `{"decision":"block","reason":"<收尾协议>"}` 拦住会话,强制模型写交接文件并用 ZCode 定时自动化布置「重置 +5 分钟」的一次性续跑任务;`resume-armed.flag` 按重置周期放行,周期翻篇自动过期 | `resumeGuard` **且** `alertsEnabled` |
+
+普通会话不登记就完全零打扰;⚙ 设置里「额度告警」总开关关闭时,上表两类介入连同会话注入一起锁定且不生效(见[设置面板](#6-⚙-设置面板分组式))。
 
 配置(可选)`~/.zcode/scripts/quota-guard-settings.json`,`thresholds` 可按池覆盖全局阈值,
 设为 `0` 表示关闭该池监控(如只想盯 5 小时池):
@@ -250,20 +143,18 @@ MIT
 {
   "threshold": 95,
   "thresholds": { "prompt5h": 95, "weekly": 95, "mcp": 0 },
-  "warnIntervalMinutes": 10
+  "warnIntervalMinutes": 10,
+  "alertsEnabled": true,
+  "sessionInject": false,
+  "resumeGuard": true,
+  "modelNameFmt": "short",
+  "tokenFmt": "compact"
 }
 ```
 
 ### 协议:无人值守续跑
 
-skill `quota-guard` 定义交接文件格式(`~/.zcode/quota-handoff.md`)、续跑任务布置步骤、唤醒复查流程。
-长任务(如凌晨无人值守)在额度触及阈值时优雅收尾,重置后 5 分钟自动恢复,长期无人值守。
-
-### 悬浮窗增强(M3 设置面板)
-
-- 每次刷新顺带 `--state` 落盘,快照全程保持新鲜
-- WinRT 原生阈值 toast(每重置周期一次),与 guard 共用同一配置
-- ⚙ 设置面板:自动刷新间隔(1/5/10/15/30 分钟)、唤出快捷键改键(冲突自动回退)、每池独立告警阈值(可单独关闭 MCP),保存即生效
+skill `quota-guard` 定义交接文件格式(`~/.zcode/quota-handoff.md`,自包含——新会话看不到当前上下文)、续跑任务布置步骤、唤醒复查流程。长任务(如凌晨无人值守)在额度触及阈值时优雅收尾,重置后 5 分钟自动恢复,长期无人值守。
 
 ### 测试
 
@@ -271,8 +162,77 @@ skill `quota-guard` 定义交接文件格式(`~/.zcode/quota-handoff.md`)、续�
 node --test plugins/zcode-usage-guard/skills/zcode-usage/scripts/*.test.mjs
 ```
 
-### 协议与致谢
+## 上游功能速览
+
+继承自上游 [ssbh163/ZCode-Usage](https://github.com/ssbh163/ZCode-Usage) 的功能,一段带过;完整文档见[上游 README](https://github.com/ssbh163/ZCode-Usage)。
+
+- **三个查询入口**:对话内命令(见上)、终端 CLI(见上)、桌面悬浮窗(见上);三端数据口径一致
+- **API Key 兜底**:自动探测失败时,Windows/macOS 悬浮窗失败页点 **🔑 配置 API Key**,面板内选服务商(智谱开放平台/智谱国际)+ 粘贴 Key,存 `~/.zcode/zcode-usage-manual.json`(三端共用;Key 不回显、走环境变量传递不出现在命令行);「清除已存 Key」可恢复自动探测
+- **自动探测顺序**:运行参数 `--key/--base` → 环境变量 `ANTHROPIC_AUTH_TOKEN`(+`ANTHROPIC_BASE_URL`;只设 `ZAI_API_KEY` 时默认国际站)→ 手动配置文件 → ZCode 配置 `~/.zcode/v2/config.json`(扫描全部已启用 provider,只认 `open.bigmodel.cn` / `api.z.ai` 两个官方域名,主动跳过没有监控接口的启动版域名 `zcode.z.ai`)
+- **悬浮窗体验**:深浅主题跟随 ZCode、位置记忆、单实例唤回、热键收起(详见[使用](#使用))
+
+> 上述功能的完整文档见[上游 README](https://github.com/ssbh163/ZCode-Usage)。
+
+## 隐私与安全
+
+- 插件**不含任何密钥**。脚本运行时从本机 ZCode 配置(`~/.zcode/v2/config.json`)读取你自己的 API Key
+- 网络请求只发往智谱官方域名(`open.bigmodel.cn` / `api.z.ai`),查询走官方监控接口,不消耗 prompt 额度
+- 速度/缓存/首字统计完全读本机文件,不发起任何网络请求
+
+## 常见问题
+
+**Q:提示"未找到 Coding Plan API Key"?**
+最省事:点悬浮窗失败页的 **🔑 配置 API Key** 手动填写;或先在 ZCode 设置里配好智谱 Coding Plan 的 API Key;或设置环境变量 `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_BASE_URL`,或运行时传 `--key <apiKey> --base <baseURL>`。
+
+**Q:HTTP 401?**
+API Key 无效或过期,去智谱开放平台重新获取。
+
+**Q:悬浮窗热键没反应?**
+①进程没在运行(它只随 ZCode 存活;重开 ZCode 或新开一个对话即恢复);②热键被其他软件占用(截图/翻译工具等)——保存改键时面板会提示"已被占用,已保留原键",关闭占用软件后在 ⚙ 设置 → 常规 → 唤出快捷键换一个键(保存即生效)。
+
+**Q:额度数字和网页后台对不上?**
+查询接口是智谱未公开文档的监控接口,官方若调整字段,更新脚本中的映射即可(`TOKENS_LIMIT` unit=3 是 5 小时池、unit=6 是每周,`TIME_LIMIT` 是 MCP 每月)。
+
+## 目录结构
+
+```
+zcode-usage-plugin/                       ← 市场仓库根目录
+├── .zcode-plugin/marketplace.json      ← 市场清单
+├── marketplace.json                    ← 根目录副本(兼容不同读取位置)
+└── plugins/zcode-usage-guard/                ← 插件本体
+    ├── .zcode-plugin/plugin.json
+    ├── hooks/hooks.json                ← SessionStart 拉起悬浮窗;SessionStart/UserPromptSubmit/Stop 组成 quota-guard 监控层(见下)
+    ├── commands/usage.md               ← /zcode-usage-guard:usage 命令
+    ├── macos/                          ← macOS 原生悬浮窗(ZCodeUsageHUD.swift + build.sh)
+    └── skills/zcode-usage/
+        ├── SKILL.md
+        └── scripts/
+            ├── zcode-usage.mjs           ← 查询脚本(零依赖,支持 --install/--uninstall)
+            ├── zcode-usage-widget.ps1    ← Windows 悬浮窗(磨砂玻璃卡片)
+            ├── widget-launch.mjs       ← 跨平台启动器(按设备分发;新会话 touch 唤醒文件唤回已有实例)
+            └── widget-launch.vbs       ← Windows 启动器(vbs,免黑窗)
+```
+
+## 卸载
+
+**插件方式**(推荐,卸载即全清):ZCode 设置 → 插件管理 → 已安装 → ZCode Usage → 卸载。悬浮窗会在数秒内检测到插件缓存被移除而自动退出,会话注入同时停止,不残留开机自启、进程或配置。
+
+**独立脚本方式**(曾运行过 `--install` 的用户):`node zcode-usage.mjs --uninstall`,一键清除悬浮窗进程、开机自启、`~/.zcode/scripts/` 下的脚本、`/usage` 命令、cli 配置中的 hook。
+
+## 更新日志
+
+- **0.3.0**:⚡ 生成速度行(速度/缓存/首字,独立数据源:本机 rollout 日志 + ZCode sqlite 用量库,展示纯解码口径,公式见 README)——此前先短暂依赖过 api-quota 插件的本地服务,0.3.0 起完全独立。⚙ 设置面板重做:三组圆角边框分组、每项 ? 悬浮说明、模型名(完整/短名)与用量数字(紧凑/完整/中文)格式化下拉、额度告警总开关联动锁定(总开关关闭时组内阈值/注入/续跑全部锁定且不生效,含 guard 与 hook 侧的实际行为)、会话注入默认关闭、新增「对话收尾自动续跑」总开关。悬浮窗宽度随模型拆分行自适应(上限屏幕 80%,超出右缘自动左移);设置/配置视图收起速度行;修复改键后底部提示不更新与提示缺少修饰键(单元素 Where-Object 结果按数组索引)两个显示 bug;token 数字格式化参数化。README 重构:本 fork 功能为主体,上游功能压缩速览。
+- **0.2.0 – 0.2.2**:改名 zcode-usage-guard;看门狗协议 v2(登记制);周期用量历史;⚙ 设置面板初版与每池阈值 toast;💹 本机/账号对比弹窗;悬浮窗多项修复与用户反馈三项修复。详见提交历史。
+- **0.0.1 – 0.0.6(上游时期)**:唤回机制、双主题跟随、API Key 手动配置兜底、高峰拆分算法修正等,详见提交历史与上游仓库。
+
+## License
+
+MIT
+
+---
+
+## 协议与致谢
 
 本仓库延续上游 **MIT License**(`LICENSE`,Copyright (c) 2026 glm-usage contributors);
-本 fork 新增的监控层代码(quota-guard 钩子、额度状态快照、⚙ 设置面板、无人值守续跑协议)同样以 **MIT** 发布。
-二次分发请一并保留上游版权声明与本声明。
+本 fork 新增的代码(⚡ 速度行、quota-guard 钩子、额度状态快照、⚙ 设置面板、无人值守续跑协议)同样以 **MIT** 发布。
+二次分发请一并保留上游版权声明与本声明。致谢上游作者 [ssbh163](https://github.com/ssbh163)。
