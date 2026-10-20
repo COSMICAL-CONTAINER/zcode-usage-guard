@@ -13,10 +13,9 @@
 |---|---|
 | `skills/zcode-usage/scripts/zcode-usage.mjs` | 核心:凭据探测(ensureCred/findCred/setCred)、请求层 get、采样记录 recordSample/readSamples、周期/日汇总 periodsOf/dayConsumption、官方响应解析 parseModelUsage/parseToolUsage、API 估价(API_PRICES_CNY/estimateCostCny/costBreakdownCny/peakHourShareCny)、采样开关 samplesEnabled()、--quota-history/--export-quota-csv 视图、--install/--uninstall |
 | `skills/zcode-usage/scripts/quota-curve.mjs` | 曲线服务+窗口:curvePayloadFromFile(JSONL→页面 periods)、modelsPayloadFor(代理+估价+30s 缓存)、127.0.0.1 服务、Edge/Chrome --app、单实例(端口文件)、闲置退出 |
-| `skills/zcode-usage/scripts/curve.html` + `echarts.min.js` | 曲线页面(自 widget web/ 原样,仅改品牌),全家桶:今日默认视图/渐变填充/重置衔接/拖选/双击选周期(终点钳制到 now)/月视图/悬停公式/绝对时间戳缩放 |
-| `skills/zcode-usage/scripts/zcode-usage-widget.ps1` | ⚙ 设置「额度采样记录」checkbox(quotaSamples 键)、右键「📈 用量曲线」 |
-| `skills/zcode-usage/scripts/*.test.mjs` ×3 | node --test,36 用例全绿 |
-| `PORT-PLAN.md` | 移植决策、语义守则、两轮评审(28 代理)全部发现与修复记录 |
+| `skills/zcode-usage/scripts/curve.html` + `echarts.min.js` | 曲线页面,全家桶:今日默认视图/渐变填充/重置衔接/拖选/双击选周期(终点钳制到 now)/月视图/悬停公式/绝对时间戳缩放 |
+| `skills/zcode-usage/scripts/zcode-usage-widget.ps1` | ⚙ 设置「额度采样记录」checkbox(quotaSamples 键)、当日行「📈 用量曲线」 |
+| `skills/zcode-usage/scripts/*.test.mjs` ×4 | node --test,36 用例全绿 |
 
 ## 不可破坏的不变量(违反即语义回归)
 
