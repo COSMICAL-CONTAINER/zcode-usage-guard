@@ -32,6 +32,14 @@ const flagValue = (name) => {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
 };
+// 额度采样历史:--samples 改存储路径,
+// --quota-history [N] / --export-quota-csv <path> 为纯本地视图(无需凭据)
+const samplesArg = flagValue('--samples');
+const exportQuotaCsvArg = flagValue('--export-quota-csv');
+const quotaHistoryCount = (() => {
+  const n = parseInt(flagValue('--quota-history'), 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 60) : 8;
+})();
 
 // ---------- 自安装:node zcode-usage.mjs --install ----------
 const COMMAND_MD = `---
@@ -52,6 +60,10 @@ node ~/.zcode/scripts/zcode-usage.mjs
 2. **每周额度**:已用百分比、重置时间
 3. **MCP 工具调用(每月)**:已用/总量、剩余次数、重置时间、各工具明细
 4. **当日模型用量**:调用次数、token 消耗、高峰期(工作日 14–18 时)/非高峰期拆分、按模型汇总(如有)
+5. **近7天窗口平均水位**:如输出含该行则一并汇报(口径:各五小时周期末次已用%
+   按窗口加权平均;末次观测是下界,周期最终使用率未知);用户想看逐周期水位历史时,
+   运行 node ~/.zcode/scripts/zcode-usage.mjs --quota-history(纯本地读取,无需凭据);
+   用户想看曲线图时,运行 node ~/.zcode/scripts/quota-curve.mjs(独立窗口,立即返回)
 
 如果命令执行失败,原样展示错误信息,并提示用户:API Key 存放在 ~/.zcode/v2/config.json,
 可在 ZCode 的模型设置中重新配置,或去智谱开放平台「个人编程套餐 > 用量统计」网页版查看。
@@ -96,6 +108,15 @@ if (argv.includes('--install')) {
   } else if (process.platform === 'win32') {
     console.log('  悬浮窗 -> 未安装(当前目录没有 zcode-usage-widget.ps1;从完整 zip 安装可获得)');
   }
+  // 用量曲线(全家桶):quota-curve.mjs + curve.html + echarts.min.js 三件套
+  const curveFiles = ['quota-curve.mjs', 'curve.html', 'echarts.min.js'];
+  if (fs.existsSync(path.join(selfDir, 'curve.html'))) {
+    for (const f of curveFiles) {
+      const src = path.join(selfDir, f);
+      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(home, '.zcode', 'scripts', f));
+    }
+    console.log('  用量曲线 -> 已安装(node ~/.zcode/scripts/quota-curve.mjs 打开;悬浮窗右键菜单「📈 用量曲线」)');
+  }
   process.exit(0);
 }
 
@@ -116,8 +137,13 @@ if (argv.includes('--uninstall')) {
     path.join(home, '.zcode', 'scripts', 'zcode-usage-widget.ps1'),
     path.join(home, '.zcode', 'scripts', 'zcode-usage-widget-launch.vbs'),
     path.join(home, '.zcode', 'scripts', 'zcode-usage-widget.pos.json'),
+    path.join(home, '.zcode', 'scripts', 'quota-curve.mjs'),
+    path.join(home, '.zcode', 'scripts', 'curve.html'),
+    path.join(home, '.zcode', 'scripts', 'echarts.min.js'),
+    path.join(home, '.zcode', 'scripts', 'quota-curve.port'),
     path.join(home, '.zcode', 'commands', 'usage.md'),
   ];
+  // 采样历史(quota-samples.jsonl)与周期台账/设置一样属于用户数据,卸载不删
   for (const t of targets) {
     if (fs.existsSync(t)) { fs.rmSync(t); removed.push(t); }
   }
@@ -223,10 +249,10 @@ function fromZcodeConfig() {
 // 凭据惰性解析(main 入口才执行):被 zcode-usage.test.mjs import 时不触发查找与退出
 let cred = null;
 let origin = null;
-function ensureCred() {
+export function ensureCred() {
   if (cred) return;
-  cred = fromArgs() || fromEnv() || fromManualFile() || fromZcodeConfig();
-  if (!cred) {
+  const found = findCred();
+  if (!found) {
     console.error('未找到 Coding Plan API Key。请任选其一:');
     console.error('  1. 在 ZCode 中配置 Coding Plan API Key(~/.zcode/v2/config.json)');
     console.error('  2. 悬浮窗里点「🔑 配置 API Key」填写(推荐,保存到 ~/.zcode/zcode-usage-manual.json,CLI 查询同样生效)');
@@ -234,14 +260,25 @@ function ensureCred() {
     console.error('  4. 运行时传参: --key <apiKey> --base https://open.bigmodel.cn/api/anthropic');
     process.exit(1);
   }
-  origin = new URL(cred.base).origin;
+  setCred(found);
+}
+
+/** 非退出式凭据探测(服务类调用方用:quota-curve 找不到 Key 时优雅降级而非退出) */
+export function findCred() {
+  return fromArgs() || fromEnv() || fromManualFile() || fromZcodeConfig();
+}
+
+/** 注入已找到的凭据,使 get() 走对应 origin */
+export function setCred(found) {
+  cred = found;
+  origin = new URL(found.base).origin;
 }
 
 // ---------- 请求 ----------
 // 常规查询 10s、hook 模式 5s,防止网络悬挂时阻塞悬浮窗 UI 或会话启动
 const FETCH_TIMEOUT = asHook ? 5000 : 10000;
 let bearerTried = false;
-async function get(p) {
+export async function get(p) {
   let res;
   try {
     res = await fetch(origin + p, {
@@ -413,6 +450,254 @@ const iconFor = (limit) => {
 const LABEL_W = 22; // 标签列显示宽度,保证进度条对齐
 const rule = (ch) => c('2;36', ch.repeat(50));
 
+// ---------- 额度采样历史(观测口径,零依赖 JSONL) ----------
+// 与 usage-history.jsonl(周期消费台账)互补:台账记"每周期用了多少量",采样记"额度水位怎么走的"。
+// 语义守则(与 widget 一致):只记观测事实,不回填不插值;过期窗口(resetAt<=at)拒绝;
+// 同刻去重;最终使用率未知(末次水位是下界,顶格 100% 的周期真实消耗可能更高);
+// 程序没在跑的时段就是没有采样(悬浮窗/插件不在 = 空窗)。
+const DEFAULT_SAMPLES_FILE = () => path.join(os.homedir(), '.zcode', 'scripts', 'quota-samples.jsonl');
+
+/** 读取采样 JSONL;坏行跳过(与 recordHistory 同风格) */
+export function readSamples(file) {
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, 'utf8').split('\n')
+    .filter(Boolean)
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter(Boolean);
+}
+
+/** 一次成功查询 → 追加一条采样;返回是否落盘及原因(调用方兜住异常,不影响主流程)。
+ *  去重键 (at, resetAt, host) 对全文件查重(等价 widget 的 UNIQUE 约束):
+ *  任意位置的重复都会被拦,跨服务商的同刻采样各留一条。 */
+export function recordSample(quota, file, nowMs, host) {
+  const l = (quota?.limits || []).find((x) => x.type !== 'TIME_LIMIT' && x.unit === 3);
+  const pct = Number(l?.percentage);
+  const resetAt = Number(l?.nextResetTime);
+  if (!l || l.percentage === null || l.percentage === undefined
+    || !Number.isFinite(pct) || pct < 0 || pct > 100 || !(resetAt > 0)) {
+    return { recorded: false, reason: 'no-five-hour-pool' }; // 含 null/缺失水位:绝不伪造 0%
+  }
+  if (resetAt <= nowMs) return { recorded: false, reason: 'expired-window' };
+  const hostKey = String(host || 'unknown');
+  const seen = new Set(readSamples(file)
+    .map((s) => `${Number(s.at)}|${Number(s.resetAt)}|${s.host || ''}`));
+  if (seen.has(`${nowMs}|${resetAt}|${hostKey}`)) {
+    return { recorded: false, reason: 'duplicate' };
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, JSON.stringify({
+    at: nowMs, resetAt, usedPct: pct,
+    level: String(quota.level || 'unknown').toUpperCase(),
+    host: hostKey,
+  }) + '\n');
+  return { recorded: true };
+}
+
+/** 采样 → 周期分组(按 host+resetAt,不同服务商的流不合并):首见/末次/峰值水位、
+ *  采样数、是否进行中;resetAt 降序。水位非法(非有限数/越界)的行忽略。 */
+export function periodsOf(samples, nowMs) {
+  const byReset = new Map();
+  for (const s of samples) {
+    const resetAt = Number(s.resetAt);
+    const pct = Number(s.usedPct);
+    const at = Number(s.at);
+    if (!(resetAt > 0) || !(at > 0) || !Number.isFinite(pct) || pct < 0 || pct > 100) continue;
+    const key = `${s.host || ''}|${resetAt}`;
+    const p = byReset.get(key) || { host: s.host || '', resetAt, count: 0, firstAt: at, lastAt: 0, firstPct: pct, lastPct: pct, peakPct: pct };
+    p.count += 1;
+    if (at < p.firstAt) { p.firstAt = at; p.firstPct = pct; }
+    if (at >= p.lastAt) { p.lastAt = at; p.lastPct = pct; }
+    if (pct > p.peakPct) p.peakPct = pct;
+    byReset.set(key, p);
+  }
+  return [...byReset.values()]
+    .map((p) => ({ ...p, active: p.resetAt > nowMs }))
+    .sort((a, b) => b.resetAt - a.resetAt);
+}
+
+/** 已完成周期 → 按周期中点归属北京日的"窗口末次水位"日均值(各周期末次水位取平均)。
+ *  周期起点 = 同服务商上一周期重置时刻(最早一个周期无上界信息,用首见采样时刻,
+ *  中点归属最多左移 ~2.5h——观测数据的固有限制,widget 同款近似)。
+ *  水位是观测下界:顶格 100% 的周期真实消耗可能更高,最终使用率未知。 */
+export function dayConsumption(samples, days, nowMs) {
+  const byHost = new Map();
+  for (const p of periodsOf(samples, nowMs)) {
+    if (p.active) continue;
+    if (!byHost.has(p.host)) byHost.set(p.host, []);
+    byHost.get(p.host).push(p);
+  }
+  const byDay = new Map();
+  for (const periods of byHost.values()) {
+    periods.sort((a, b) => a.resetAt - b.resetAt);
+    for (let i = 0; i < periods.length; i++) {
+      const p = periods[i];
+      // 起点取上一周期重置点;但两周期间隔远超一个周期长(约 5h,长期停用后恢复)时,
+      // 中点会落到无观测的日期,改用本周期首次采样时间(与最早周期的近似一致)
+      const prevReset = i > 0 ? periods[i - 1].resetAt : 0;
+      const start = i > 0 && prevReset && p.firstAt - prevReset <= 6 * 3600e3 ? prevReset : p.firstAt;
+      const mid = Math.round((start + p.resetAt) / 2);
+      const dayMs = bjDayStartMs(mid);
+      const d = byDay.get(dayMs) || { dayMs, n: 0, sum: 0 };
+      d.n += 1;
+      d.sum += p.lastPct;
+      byDay.set(dayMs, d);
+    }
+  }
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const dayMs = bjDayStartMs(nowMs) - i * 86400_000;
+    const d = byDay.get(dayMs);
+    out.push({ dayMs, dayLabel: bjFmt(dayMs).slice(5, 10), n: d ? d.n : 0, meanPct: d ? d.sum / d.n : null });
+  }
+  return out;
+}
+
+// ---------- 曲线服务所需:官方用量响应解析 + API 估价(供 quota-curve.mjs 复用) ----------
+/** model-usage 原始 data → 页面/卡片消费的形状(移植自 widget 的 parse_model_usage) */
+export function parseModelUsage(data) {
+  const labels = (data?.x_time || []).map(String);
+  const width = labels.length;
+  const models = [];
+  for (const entry of data?.modelDataList || []) {
+    if (!entry || !entry.modelName) continue;
+    const tokens = (entry.tokensUsage || []).map((v) => Number(v) || 0).slice(0, width);
+    while (tokens.length < width) tokens.push(0);
+    models.push({ modelName: String(entry.modelName), totalTokens: Number(entry.totalTokens) || 0, hourTokens: tokens });
+  }
+  models.sort((a, b) => b.totalTokens - a.totalTokens);
+  const total = data?.totalUsage || {};
+  return {
+    generatedAtUtc: new Date().toISOString(),
+    granularity: String(data?.granularity || 'hourly'),
+    hourLabels: labels,
+    hourTokens: (data?.tokensUsage || []).map((v) => Number(v) || 0).slice(0, width),
+    totalCalls: Number(total.totalModelCallCount) || 0,
+    totalTokens: Number(total.totalTokensUsage) || 0,
+    models,
+  };
+}
+
+/** tool-usage 原始 data → {tools:[{toolName, totalUsageCount}]}(按次数降序) */
+export function parseToolUsage(data) {
+  const tools = (data?.toolSummaryList || [])
+    .filter((t) => t && t.toolName)
+    .map((t) => ({ toolName: String(t.toolName), totalUsageCount: Number(t.totalUsageCount) || 0 }));
+  tools.sort((a, b) => b.totalUsageCount - a.totalUsageCount);
+  return { generatedAtUtc: new Date().toISOString(), tools };
+}
+
+// 按量刊牌价(每百万 tokens,输入/输出;国内刊牌为主,国际价折算)。估价口径:输入:输出=8:2,
+// 接口不提供输入/输出拆分;未收录模型按中档回退。金额为估算,非实付。
+export const API_PRICES_CNY = {
+  'glm-5.3-flashx': [2.11, 7.36],
+  'glm-5.3-flash': [1.07, 3.58],
+  'glm-5.3': [8.0, 28.0],
+  'glm-4.7': [4.28, 15.73],
+};
+export const API_INPUT_SHARE = 0.8;
+const API_PRICE_FALLBACK = [2.0, 7.0];
+
+/** 最长匹配取价(glm-5.3 不会吞掉 glm-5.3-flash) */
+export function apiPriceFor(modelName) {
+  const name = String(modelName || '').toLowerCase();
+  for (const key of Object.keys(API_PRICES_CNY).sort((a, b) => b.length - a.length)) {
+    if (name.includes(key)) return API_PRICES_CNY[key];
+  }
+  return API_PRICE_FALLBACK;
+}
+
+/** 逐模型估价明细(按金额降序);cny 保持全精度,perMillion 四舍五入仅供展示 */
+export function costBreakdownCny(models) {
+  const parts = [];
+  for (const m of models || []) {
+    const tokens = (m?.hourTokens || []).reduce((s, v) => s + (Number(v) || 0), 0);
+    if (tokens <= 0) continue;
+    const [pin, pout] = apiPriceFor(m?.modelName);
+    const perMillion = API_INPUT_SHARE * pin + (1 - API_INPUT_SHARE) * pout;
+    parts.push({ name: String(m?.modelName || '?'), tokens, perMillion: Math.round(perMillion * 100) / 100, cny: tokens / 1e6 * perMillion });
+  }
+  parts.sort((a, b) => b.cny - a.cny);
+  return parts;
+}
+
+export function estimateCostCny(models) {
+  return costBreakdownCny(models).reduce((s, p) => s + p.cny, 0);
+}
+
+/** 北京时间 14:00-18:00 高峰桶的 token 占比(0-100;标签无小时粒度时 null) */
+export function peakHourShareCny(labels, tokens) {
+  let peak = 0, total = 0;
+  for (const [i, label] of (labels || []).entries()) {
+    const hour = Number(String(label).split(' ')[1]?.slice(0, 2));
+    if (!Number.isFinite(hour)) return null;
+    const t = Number(tokens?.[i]) || 0;
+    total += t;
+    if (hour >= 14 && hour < 18) peak += t;
+  }
+  return total > 0 ? (peak / total) * 100 : null;
+}
+
+/** 采样记录开关(⚙ 设置面板「额度采样记录」;默认关——普通用户零写盘,显式 true 才开) */
+export function samplesEnabled() {
+  try {
+    const s = JSON.parse(fs.readFileSync(
+      path.join(os.homedir(), '.zcode', 'scripts', 'quota-guard-settings.json'), 'utf8').replace(/^﻿/, ''));
+    return s.quotaSamples === true;
+  } catch { return false; }
+}
+
+/** --export-quota-csv:逐次采样导出(本地读,无需凭据、不发请求;水位非法的行过滤) */
+function runQuotaCsvExport(outPath, samplesFile) {
+  const samples = readSamples(samplesFile || DEFAULT_SAMPLES_FILE())
+    .filter((s) => Number(s.at) > 0 && Number(s.resetAt) > 0
+      && Number.isFinite(Number(s.usedPct)) && Number(s.usedPct) >= 0 && Number(s.usedPct) <= 100);
+  const head = 'observed_at_beijing,reset_at_beijing,used_pct,remaining_pct';
+  const body = samples.map((s) => [
+    bjFmt(Number(s.at)), bjFmt(Number(s.resetAt)),
+    Number(s.usedPct), (100 - Number(s.usedPct)).toFixed(1),
+  ].join(','));
+  fs.writeFileSync(outPath, [head, ...body].join('\n') + (body.length ? '\n' : ''));
+  console.log(`已导出 ${body.length} 条采样 -> ${outPath}`);
+}
+
+/** --quota-history [N]:最近周期水位 + 近 7 天窗口平均消耗(本地读) */
+function runQuotaHistoryView(samplesFile, count) {
+  const file = samplesFile || DEFAULT_SAMPLES_FILE();
+  const samples = readSamples(file);
+  if (!samples.length) {
+    console.log(`暂无采样记录(${file})。悬浮窗/插件每次成功查询会自动累积;`);
+    console.log('数据语义:只记观测事实,程序未运行的时段无采样,周期最终使用率未知。');
+    return;
+  }
+  const nowMs = Date.now();
+  const periods = periodsOf(samples, nowMs);
+  console.log(bold(`额度采样历史 · 最近 ${Math.min(count, periods.length)} 个周期`)
+    + dim(`(共 ${periods.length} 周期 / ${samples.length} 条采样)`));
+  for (const p of periods.slice(0, count)) {
+    console.log(` ${padEndW(fmtTs(p.resetAt) + ' 重置', 18)}`
+      + `${String(p.count).padStart(3)} 采样  `
+      + `首见 ${p.firstPct.toFixed(0)}% → 末次 ${p.lastPct.toFixed(0)}% · 峰值 ${p.peakPct.toFixed(0)}%`
+      + (p.active ? c('32', ' · 进行中') : ''));
+  }
+  const days = dayConsumption(samples, 7, nowMs).filter((d) => d.n > 0);
+  if (days.length) {
+    const totalN = days.reduce((s, d) => s + d.n, 0);
+    const totalSum = days.reduce((s, d) => s + d.meanPct * d.n, 0);
+    console.log('');
+    console.log(bold('近 7 天窗口末次水位') + dim('(各周期末次已用%按日平均;观测下界,顶格 100% 的周期真实消耗可能更高,最终使用率未知)'));
+    for (const d of days) {
+      const filled = Math.round(d.meanPct / 5);
+      console.log(` ${d.dayLabel}  ${c(rateStyle(d.meanPct), '▰'.repeat(filled) + '▱'.repeat(Math.max(0, 20 - filled)))}  ${c(rateStyle(d.meanPct), d.meanPct.toFixed(0) + '%')}  ${dim(`(${d.n} 窗口)`)}`);
+    }
+    console.log(` 7 天合计(按窗口加权): ${c(rateStyle(totalSum / totalN), (totalSum / totalN).toFixed(0) + '%')}  ${dim(`(共 ${totalN} 窗口)`)}`);
+  }
+  console.log('');
+  console.log(dim(`    采样文件 ${file} · 导出 CSV 加 --export-quota-csv <路径>`));
+}
+
+if (exportQuotaCsvArg) { runQuotaCsvExport(exportQuotaCsvArg, samplesArg); process.exit(0); }
+if (argv.includes('--quota-history')) { runQuotaHistoryView(samplesArg, quotaHistoryCount); process.exit(0); }
+
 // ---------- 状态快照(quota-guard 数据面)----------
 // 消费方(quota-guard hook、自动化任务)一律只读文件、不发网络请求,hook 才能毫秒级返回。
 // 写入时机:--hook 模式(每次会话启动)+ 常规模式带 --state <path>;Windows 悬浮窗每次刷新也带 --state。
@@ -548,9 +833,9 @@ export function localSpeedRecent(nowMs, rolloutDir, window = 10) {
       cacheRead += Number((line.match(/"cacheReadTokens":(\d+)/) || [])[1]) || 0;
       input += Number((line.match(/"inputTokens":(\d+)/) || [])[1]) || 0;
     }
-    if (rates.length) perFile.push(rates);
+    if (rates.length) perFile.push(rates.reverse()); // 倒序:每文件最新的样本排前面
   }
-  const recent = perFile.flat().slice(0, window);
+  const recent = perFile.flat().slice(0, window); // flat 后就是"最新优先",取前 window 条 = 最近 N 次调用
   if (!recent.length) return null;
   recent.sort((a, b) => a - b);
   const mid = Math.floor(recent.length / 2);
@@ -559,8 +844,8 @@ export function localSpeedRecent(nowMs, rolloutDir, window = 10) {
 }
 
 // 会话注入开关:⚙ 设置的「会话启动注入用量摘要」,存 quota-guard-settings.json(与 guard/悬浮窗共用)。
-// 权限层级:上面的「额度告警」总开关(alertsEnabled)关闭时,注入锁定且不生效;
-// 默认关闭——用户不一定想要对话被注入上下文;关闭时 SessionStart 钩子直接返回,连网络请求都不发。
+// 权限层级:上面的「额度告警」总开关(alertsEnabled)关闭时,注入锁定且不生效。
+// 默认关闭——用户不一定想要对话被注入上下文;关闭时不输出注入内容,但用量快照仍随 --hook 续期(守卫依赖新鲜快照)。
 function sessionInjectEnabled() {
   try {
     const s = JSON.parse(fs.readFileSync(
@@ -577,15 +862,19 @@ export async function localSqliteStats(limit = 10) {
   try {
     const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(path.join(os.homedir(), '.zcode', 'cli', 'db', 'db.sqlite'), { readOnly: true });
-    const rows = db.prepare(
-      `SELECT output_tokens AS out, duration_ms AS dur, time_to_first_token_ms AS ttft,
-              input_tokens AS inp, cache_read_input_tokens AS cr
-       FROM model_usage
-       WHERE output_tokens > 0 AND duration_ms > 0
-         AND COALESCE(query_source, '') <> 'session_title'
-       ORDER BY started_at DESC LIMIT ?`
-    ).all(limit);
-    db.close();
+    let rows;
+    try {
+      rows = db.prepare(
+        `SELECT output_tokens AS out, duration_ms AS dur, time_to_first_token_ms AS ttft,
+                input_tokens AS inp, cache_read_input_tokens AS cr
+         FROM model_usage
+         WHERE output_tokens > 0 AND duration_ms > 0
+           AND COALESCE(query_source, '') <> 'session_title'
+         ORDER BY started_at DESC LIMIT ?`
+      ).all(limit);
+    } finally {
+      db.close(); // 查询抛异常(表结构漂移/库被锁)也要释放句柄
+    }
     const decodes = [], ttfts = [];
     let cacheRead = 0, input = 0;
     for (const r of rows) {
@@ -606,7 +895,10 @@ export async function localSqliteStats(limit = 10) {
     };
     const md = median(decodes);
     const mt = median(ttfts);
+    // 键集与 JSONL 回退口径(localSpeedRecent)保持一致,悬浮窗/调用方无需区分数据来源
     return {
+      samples: rows.length,
+      medianRate: null, // sqlite 口径不产含预填充速度,该键留空
       medianDecodeRate: md === null ? null : Math.round(md),
       medianTtftMs: mt === null ? null : Math.round(mt),
       cacheHitRate: input > 0 ? cacheRead / input : null,
@@ -617,10 +909,10 @@ export async function localSqliteStats(limit = 10) {
 // ---------- 主流程 ----------
 async function main() {
   ensureCred();
-  if (asHook && !sessionInjectEnabled()) return;
   const quota = await get('/api/monitor/usage/quota/limit');
 
   // 状态快照:--hook 模式固定写默认路径;常规模式带 --state <path> 时写指定路径(自动化/调试用)
+  // 注意:快照续期不受「会话启动注入」开关影响——quota-guard 依赖新鲜快照,该开关只门控下方输出
   const stateArg = flagValue('--state');
   if (asHook || stateArg) {
     const statePath = stateArg || path.join(os.homedir(), '.zcode', 'scripts', 'usage-state.json');
@@ -629,6 +921,17 @@ async function main() {
       writeStateFile(quota, statePath);
     } catch { /* 落盘失败不影响查询主流程 */ }
   }
+
+  // 额度采样记录(移植自 widget):每次成功查询追加一条观测水位;⚙ 设置「额度采样记录」
+  // 关闭时不记录;记录失败绝不影响主流程
+  try {
+    if (samplesEnabled()) {
+      recordSample(quota, samplesArg || DEFAULT_SAMPLES_FILE(), Date.now(), new URL(origin).host);
+    }
+  } catch { /* 采样落盘失败不影响查询 */ }
+
+  // 注入门控:关闭时快照已在上面续期,这里只跳过 additionalContext 输出,对对话零打扰
+  if (asHook && !sessionInjectEnabled()) return;
 
   // 周期历史:--history <jsonl> 时补录刚结束的 5 小时周期(跨周期才发请求,平时零开销)
   if (historyArg) {
@@ -682,16 +985,16 @@ async function main() {
   }
 
   if (asJson) {
-    // 速度/缓存/首字:sqlite 纯解码口径优先(与输入框状态条一致);node:sqlite 不可用时回退 JSONL 含预填充
-    const sql = await localSqliteStats();
-    const ls = sql || localSpeedRecent(nowMs);
-    const localSpeed = (ls || sql)
+    // 速度/缓存/首字:sqlite 纯解码口径优先(与输入框状态条一致);node:sqlite 不可用时回退 JSONL 含预填充。
+    // 两条路径键集一致:samples/medianRate/medianDecodeRate/cacheHitRate/medianTtftMs
+    const ls = (await localSqliteStats()) || localSpeedRecent(nowMs) || null;
+    const localSpeed = ls
       ? {
-          samples: ls ? ls.samples : 0,
-          medianRate: ls ? ls.medianRate : null, // 回退口径:含预填充
-          medianDecodeRate: sql ? sql.medianDecodeRate : null, // 纯解码(展示用这个)
-          cacheHitRate: ls ? ls.cacheHitRate : null,
-          medianTtftMs: sql ? sql.medianTtftMs : null,
+          samples: ls.samples,
+          medianRate: ls.medianRate ?? null,
+          medianDecodeRate: ls.medianDecodeRate ?? null,
+          cacheHitRate: ls.cacheHitRate ?? null,
+          medianTtftMs: ls.medianTtftMs ?? null,
         }
       : null;
     console.log(JSON.stringify({
@@ -754,6 +1057,18 @@ async function main() {
       console.log(` 🔌  ${bold(padEndW('当日 MCP 调用', LABEL_W))}${parts.join(' · ')}`);
     }
   }
+
+  // 近 7 天窗口末次水位(采样历史有数据才显示;本地读,不发请求;按窗口加权)
+  try {
+    const samples = readSamples(samplesArg || DEFAULT_SAMPLES_FILE());
+    const days = dayConsumption(samples, 7, nowMs).filter((d) => d.n > 0);
+    if (days.length) {
+      const totalN = days.reduce((s, d) => s + d.n, 0);
+      const mean = days.reduce((s, d) => s + d.meanPct * d.n, 0) / totalN;
+      console.log('');
+      console.log(` 📈  ${bold(padEndW('近7天窗口平均水位', LABEL_W))}${c(rateStyle(mean), mean.toFixed(0) + '%')}  ${dim(`(末次观测下界 · ${totalN} 窗口 · --quota-history 看明细)`)}`);
+    }
+  } catch { /* 无采样历史时静默 */ }
 
   console.log('');
   console.log(rule('━'));

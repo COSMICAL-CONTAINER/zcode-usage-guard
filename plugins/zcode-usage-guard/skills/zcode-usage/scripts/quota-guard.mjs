@@ -45,7 +45,9 @@ let sessionId = process.env.CLAUDE_SESSION_ID || argValue('--session') || '';
 
 const DEFAULT_THRESHOLD = 95;
 const DEFAULT_WARN_INTERVAL_MIN = 10;
-const STATE_MAX_AGE_MS = 30 * 60_000; // 快照过期(widget 停了且长时间无新会话)时不打扰
+// 快照过期阈值:要给「悬浮窗 30 分钟自动刷新档」留出裕量——阈值与刷新周期相等时,
+// 每个刷新周期尾部快照都会被判过期,守卫静默停摆;75 分钟 ≈ 最大刷新档的 2.5 倍
+const STATE_MAX_AGE_MS = 75 * 60_000;
 
 function readJson(file) {
   try {
@@ -70,7 +72,7 @@ function loadSettings() {
     threshold: globalTh,
     thresholds: overrides,
     warnIntervalMinutes: warnMin > 0 ? warnMin : DEFAULT_WARN_INTERVAL_MIN,
-    // 告警总开关:默认开;关闭后 UserPromptSubmit 不再注入额度警报(Stop 的登记续跑协议不受影响)
+    // 告警总开关:默认开;关闭后 UserPromptSubmit 告警与 Stop 登记续跑均不生效(权限层级,与 ⚙ 面板/README 一致)
     alertsEnabled: s.alertsEnabled !== false,
     // 额度守卫自动续跑总开关:默认开;只影响「登记过」的会话在 Stop 收尾时是否布置自动续跑
     resumeGuard: s.resumeGuard !== false,

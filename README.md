@@ -1,4 +1,4 @@
-# zcode-usage-guard — 0.3.0
+# zcode-usage-guard — 0.5.0
 
 > 在上游 [ssbh163/ZCode-Usage](https://github.com/ssbh163/ZCode-Usage)(MIT)的「GLM Coding Plan 查询 + 桌面悬浮窗」基础上,本 fork 新增三大块:
 > **⚡ 生成速度行**(纯解码 tok/s · 缓存 · 首字,独立数据源)、**⚙ 分组式设置面板**(格式化选项 + 权限层级)、**额度监控与无人值守续跑(quota-guard)**。
@@ -18,7 +18,7 @@
 
 ## 效果预览
 
-Windows 悬浮窗(深色主题,随 ZCode 外观自动切换;v0.3.0 实拍):
+Windows 悬浮窗(深色主题,随 ZCode 外观自动切换;实拍):
 
 | 悬浮窗:速度/缓存/首字 + 按模型用量 | ⚙ 设置面板:分组边框 + 每项 ? 说明 + 权限层级 |
 |:---:|:---:|
@@ -63,11 +63,11 @@ node "$(ls -d "$HOME/.zcode/cli/plugins/cache"/*/zcode-usage-guard/*/skills/zcod
 
 ### 3. 桌面悬浮窗(按设备自动选择 UI,随插件启停)
 
-SessionStart hook 按当前设备自动选择 UI:**Windows** 为 WPF 磨砂玻璃卡片,**macOS** 为原生 HUD(编译一次:进插件目录 `macos/` 执行 `bash build.sh`),其他系统无悬浮窗(仅命令/技能/注入)。**卸载插件后悬浮窗自动退出**,不残留开机自启或后台进程。
+SessionStart hook 按当前设备自动选择 UI:**Windows** 为 WPF 半透明卡片,**macOS** 为原生 HUD(编译一次:进插件目录 `macos/` 执行 `bash build.sh`),其他系统无悬浮窗(仅命令/技能/注入)。**卸载插件后悬浮窗自动退出**,不残留开机自启或后台进程。
 
 - 全局热键显示/隐藏(默认 Ctrl+G,⚙ 设置可改键);冷启动自动拉起、新会话自动唤回(唤醒文件机制,250ms 内响应)、单实例去重、位置记忆
 - 配色与 ZCode 外观主题保持一致(每 2 秒探测 ZCode 主窗口实际配色),不读写 Windows 主题设置;`ZCODE_WIDGET_THEME=light|dark` 可强制指定(调试用)
-- 右上角 **✕** 只是隐藏(进程驻留),**右键菜单 → 退出**彻底关闭
+- 右上角 **✕** 只是隐藏(进程驻留);悬浮窗随 ZCode 退出自动关闭,需要立即结束可在任务管理器结束 powershell 进程
 - API Key 失效时面板明确提示,修复后自动恢复
 
 ### 4. ⚡ 生成速度/缓存/首字(本 fork 新增)
@@ -96,10 +96,11 @@ SessionStart hook 支持在每个新对话开头注入一行额度摘要(5 小�
 | 分组 | 设置项 | 说明 |
 |---|---|---|
 | **显示格式** | 模型名 | 完整 `GLM-5.3-flashx` / 短名 `5.3-flashx` |
-| | 用量数字 | 紧凑 `53.4M` / 完整 `53,452,123` / 中文 `5345.2万`,全窗口统一生效 |
+| | 用量数字 | 紧凑 `53.4M` / 完整 `53,452,123` / 中文 `5345.2 万`,全窗口统一生效 |
 | **常规** | 自动刷新间隔 | 1/5/10/15/30 分钟 |
 | | 唤出快捷键 | 全局热键改键(冲突自动回退;底部提示与 ✕ 悬停提示同步更新) |
-| **额度告警**(总开关) | 三池阈值 | 80/85/90/95% 或关闭 |
+| | 额度采样记录 | **默认关**;开启后每次查询记录额度水位——采样是历史视图与用量曲线的数据源,普通用户零写盘 |
+| **额度告警**(总开关) | 三池阈值 | 80/85/90/95% 或关闭;手工编辑 settings 写入的界外值(如 87%)在面板中原样保留 |
 | | 会话启动注入用量摘要 | 默认关,见[上文](#5-新会话自动注入默认关闭) |
 | | 对话收尾自动续跑(登记制) | Stop 钩子收尾协议,见 [quota-guard 监控层](#quota-guard-监控层本-fork-新增) |
 
@@ -162,6 +163,42 @@ skill `quota-guard` 定义交接文件格式(`~/.zcode/quota-handoff.md`,自包�
 node --test plugins/zcode-usage-guard/skills/zcode-usage/scripts/*.test.mjs
 ```
 
+## 额度采样历史(0.4.0)
+
+与上面的周期消费台账(`usage-history.jsonl`,记"每周期用了多少量")互补,采样历史记"**额度水位怎么走的**":开启 ⚙ 设置的「额度采样记录」后,悬浮窗刷新与手动 CLI 的每次成功查询都会自动追加一条水位观测到 `~/.zcode/scripts/quota-samples.jsonl`(SessionStart hook 仅在勾选「会话启动注入用量摘要」时采样):
+
+```json
+{"at":1760000000000,"resetAt":1760017800000,"usedPct":35,"level":"PRO","host":"open.bigmodel.cn"}
+```
+
+**数据语义**(务必保持的守则):只记观测事实,不回填不插值;过期窗口(重置时间已过的旧响应)拒绝入库;同刻去重;**周期最终使用率未知**(末次水位是下界,顶格 100% 的周期真实消耗可能更高);悬浮窗/插件没在跑的时段就是没有采样。
+
+查询入口(均纯本地读、无需凭据、不发网络请求):
+
+```bash
+node ~/.zcode/scripts/zcode-usage.mjs --quota-history        # 最近 8 个周期水位 + 近 7 天窗口末次水位(日平均 + 窗口加权合计)
+node ~/.zcode/scripts/zcode-usage.mjs --quota-history 20     # 看更多周期(上限 60)
+node ~/.zcode/scripts/zcode-usage.mjs --export-quota-csv out.csv   # 逐次采样 CSV(北京时间列)
+```
+
+"窗口末次水位"口径:一天约 4.8 个五小时窗口,取各窗口末次已用百分比按日平均(如五个窗口各用了一半 → 当天 50%);/usage 汇总行按窗口加权。展示口径为本插件新增,已经过全量真实历史逐日交叉验证。`/zcode-usage-guard:usage` 与终端卡片输出的尾部也会自动带上近 7 天均值一行(有数据时);`--samples <path>` 可重定向存储位置(测试/调试用);`--uninstall` 会保留采样文件(用户数据)。
+
+## 用量曲线(0.5.0,曲线全家桶)
+
+```bash
+node ~/.zcode/scripts/quota-curve.mjs     # 打开曲线窗口(Edge/Chrome 应用窗口,无地址栏)
+```
+
+也可点悬浮窗当日行的 **📈 按钮** 一键打开。曲线页面(暗色 ECharts 全家桶):
+
+- **今日默认视图**(今天首个五小时周期 → 现在,一般四五条曲线),切片「今日/全部/近 N 天/自定义」
+- 线色随剩余量**绿→黄→红**、曲线下方**渐隐填充**、重置边界**虚线衔接**、停机断线不补造
+- **拖选/双击曲线/点卡片**看任意时段(含进行中周期),**「月」按月汇总**,缩放视图跨自动刷新保持
+- 模型用量柱状图 + **API 估价**(悬停金额看逐模型计算公式)——经本机服务代理官方接口(30s 节流),无凭据时曲线照常、该面板为空
+- 服务只绑定 127.0.0.1(只读),闲置 10 分钟自动退出;**单实例**(再运行直接再开一窗);支持 `--port/--samples/--idle/--no-open` 参数(见源码头注释)
+
+数据源就是上面的采样历史:「额度采样记录」**默认关**(普通用户零写盘)——未开启时点击 📈 会**自动开启并落盘**后打开页面(自愈式);也可在 ⚙ 设置里开启。
+
 ## 上游功能速览
 
 继承自上游 [ssbh163/ZCode-Usage](https://github.com/ssbh163/ZCode-Usage) 的功能,一段带过;完整文档见[上游 README](https://github.com/ssbh163/ZCode-Usage)。
@@ -198,7 +235,7 @@ API Key 无效或过期,去智谱开放平台重新获取。
 ```
 zcode-usage-plugin/                       ← 市场仓库根目录
 ├── .zcode-plugin/marketplace.json      ← 市场清单
-├── marketplace.json                    ← 根目录副本(兼容不同读取位置)
+├── marketplace.json                    ← 本地目录安装(方式 B)读取的市场清单;与 .zcode-plugin 版内容有差异,各自供不同安装路径
 └── plugins/zcode-usage-guard/                ← 插件本体
     ├── .zcode-plugin/plugin.json
     ├── hooks/hooks.json                ← SessionStart 拉起悬浮窗;SessionStart/UserPromptSubmit/Stop 组成 quota-guard 监控层(见下)
@@ -208,9 +245,13 @@ zcode-usage-plugin/                       ← 市场仓库根目录
         ├── SKILL.md
         └── scripts/
             ├── zcode-usage.mjs           ← 查询脚本(零依赖,支持 --install/--uninstall)
-            ├── zcode-usage-widget.ps1    ← Windows 悬浮窗(磨砂玻璃卡片)
+            ├── zcode-usage-widget.ps1    ← Windows 悬浮窗(半透明卡片)
             ├── widget-launch.mjs       ← 跨平台启动器(按设备分发;新会话 touch 唤醒文件唤回已有实例)
-            └── widget-launch.vbs       ← Windows 启动器(vbs,免黑窗)
+            ├── widget-launch.vbs       ← Windows 启动器(vbs,免黑窗)
+            ├── quota-curve.mjs         ← 用量曲线服务+窗口(0.5.0,曲线全家桶)
+            ├── curve.html              ← 曲线页面
+            ├── echarts.min.js          ← 离线 ECharts 5.6.0(Apache-2.0,~1MB)
+            └── *.test.mjs              ← 四个测试文件(node --test)
 ```
 
 ## 卸载
@@ -221,6 +262,8 @@ zcode-usage-plugin/                       ← 市场仓库根目录
 
 ## 更新日志
 
+- **0.5.0**:📈 用量曲线全家桶(quota-curve.mjs + curve.html + 离线 echarts.min.js):ECharts 曲线页——今日默认视图/渐变线与渐隐填充/重置衔接/拖选与双击选周期/月视图/悬停公式/API 估价;只读本地服务仅绑 127.0.0.1、30s 节流代理模型接口、闲置 10 分钟退出、单实例;入口:CLI、悬浮窗当日行 📈 按钮、/usage 命令说明;⚙ 设置新增「额度采样记录」checkbox(后续版本起默认关,普通用户零写盘);`--install` 同步安装曲线三件套,`--uninstall` 清理(采样历史保留)。新增 quota-curve.test.mjs(3 用例,全套 36 绿);已用真实 15 天历史数据验证渲染。
+- **0.4.0**:📈 额度采样历史:每次成功查询自动追加一条五小时池水位观测到 `~/.zcode/scripts/quota-samples.jsonl`(过期窗口拒绝、同刻去重、观测口径、最终使用率未知);新增 `--quota-history [N]`(周期水位 + 近 7 天窗口末次水位)与 `--export-quota-csv`(逐次采样 CSV)两个纯本地视图;`/usage` 与终端卡片尾部自动附"近 7 天窗口平均水位"一行(观测下界);与既有周期台账(usage-history.jsonl)互补——台账记用量、采样记水位。新增 quota-samples.test.mjs(8 用例);
 - **0.3.0**:⚡ 生成速度行(速度/缓存/首字,独立数据源:本机 rollout 日志 + ZCode sqlite 用量库,展示纯解码口径,公式见 README)——此前先短暂依赖过 api-quota 插件的本地服务,0.3.0 起完全独立。⚙ 设置面板重做:三组圆角边框分组、每项 ? 悬浮说明、模型名(完整/短名)与用量数字(紧凑/完整/中文)格式化下拉、额度告警总开关联动锁定(总开关关闭时组内阈值/注入/续跑全部锁定且不生效,含 guard 与 hook 侧的实际行为)、会话注入默认关闭、新增「对话收尾自动续跑」总开关。悬浮窗宽度随模型拆分行自适应(上限屏幕 80%,超出右缘自动左移);设置/配置视图收起速度行;修复改键后底部提示不更新与提示缺少修饰键(单元素 Where-Object 结果按数组索引)两个显示 bug;token 数字格式化参数化。README 重构:本 fork 功能为主体,上游功能压缩速览。
 - **0.2.0 – 0.2.2**:改名 zcode-usage-guard;看门狗协议 v2(登记制);周期用量历史;⚙ 设置面板初版与每池阈值 toast;💹 本机/账号对比弹窗;悬浮窗多项修复与用户反馈三项修复。详见提交历史。
 - **0.0.1 – 0.0.6(上游时期)**:唤回机制、双主题跟随、API Key 手动配置兜底、高峰拆分算法修正等,详见提交历史与上游仓库。

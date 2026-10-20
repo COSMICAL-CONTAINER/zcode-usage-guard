@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>GLM 用量曲线</title>
+<script src="/echarts.min.js"></script>
+<style>
+  :root{--bg:#0d1220;--panel:#151c28;--panel2:#1b2434;--line:#232f44;--text:#edf3fb;--muted:#9aaac0;--accent:#22d3ee;--accent2:#8b5cf6;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{color:var(--text);font:14px/1.6 "Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;min-height:100vh;
+    background:
+      radial-gradient(1100px 420px at 50% -80px, rgba(34,211,238,.075), transparent 70%),
+      radial-gradient(900px 500px at 85% 8%, rgba(139,92,246,.055), transparent 70%),
+      var(--bg);}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:
+      linear-gradient(rgba(148,180,220,.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148,180,220,.028) 1px, transparent 1px);
+    background-size:44px 44px;
+    mask-image:linear-gradient(180deg, rgba(0,0,0,.8), rgba(0,0,0,.25) 40%, rgba(0,0,0,.06));}
+  header,main,section,footer{position:relative;z-index:1}
+  header{position:sticky;top:0;z-index:5;background:linear-gradient(180deg,rgba(15,21,38,.97) 0%,rgba(15,21,38,.88) 100%);padding:14px 22px 12px;backdrop-filter:blur(8px)}
+  header::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;
+    background:linear-gradient(90deg, transparent, rgba(34,211,238,.45) 30%, rgba(139,92,246,.45) 70%, transparent)}
+  ::-webkit-scrollbar{width:10px}
+  ::-webkit-scrollbar-track{background:#0d1220}
+  ::-webkit-scrollbar-thumb{background:#243149;border-radius:6px;border:2px solid #0d1220}
+  ::-webkit-scrollbar-thumb:hover{background:#33455f}
+  .row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .title{font-size:17px;font-weight:600;letter-spacing:.5px;
+    background:linear-gradient(100deg,#edf3fb 30%,#9be7f5 75%,#c4b1f8);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .title .dot{color:var(--accent);margin-right:6px;text-shadow:0 0 12px rgba(34,211,238,.8)}
+  .sub{color:var(--muted);font-size:12px;font-weight:400;margin-left:10px;font-variant-numeric:tabular-nums}
+  .spacer{flex:1}
+  .ranges{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:999px;padding:4px 14px;font-size:12.5px;cursor:pointer;transition:all .18s ease;user-select:none}
+  .chip:hover{border-color:#33455f;color:var(--text);transform:translateY(-1px)}
+  .chip.active{background:linear-gradient(135deg,rgba(34,211,238,.18),rgba(139,92,246,.22));border-color:#3d5a7a;color:#c9f2ff;box-shadow:0 0 14px rgba(34,211,238,.22)}
+  .custom{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
+  input[type=date]{background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:4px 8px;font-size:12px;color-scheme:dark;outline:none}
+  input[type=date]:focus{border-color:#3d5a7a}
+  .btn{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:8px;padding:4px 14px;font-size:12.5px;cursor:pointer;transition:all .18s}
+  .btn:hover{border-color:#3d5a7a;background:var(--panel2)}
+  main{padding:16px 22px 0}
+  #chart{width:100%;height:min(58vh,560px);background:linear-gradient(180deg,#171f30,#141b2a);border:1px solid #26314a;border-radius:14px;box-shadow:0 10px 32px rgba(0,0,0,.4), inset 0 1px 0 rgba(148,180,220,.06)}
+  #models-sec{padding:14px 22px 0}
+  .mhead{display:flex;align-items:baseline;gap:12px;margin-bottom:8px;font-size:13px}
+  .mhead b{color:var(--text)}
+  .mhead .sub{color:var(--muted);font-size:11.5px}
+  .cost-tip{position:relative;cursor:help;border-bottom:1px dotted #4a5a75;color:#9be7f5;white-space:nowrap}
+  .cost-tip:hover::after{content:attr(data-formula);position:absolute;bottom:calc(100% + 8px);left:0;z-index:40;
+    background:#151c28;border:1px solid #2c3950;border-radius:8px;padding:8px 11px;white-space:pre-line;
+    width:max-content;max-width:460px;
+    font-size:11px;line-height:1.6;color:#c9d5e8;box-shadow:0 10px 28px rgba(0,0,0,.55);text-align:left}
+  .nav{display:inline-flex;align-items:center;gap:2px}
+  .nav button{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:6px;
+    width:24px;height:20px;font-size:12px;cursor:pointer;line-height:1;transition:all .15s}
+  .nav button:hover:not(:disabled){border-color:#3d5a7a;color:var(--text)}
+  .nav button:disabled{opacity:.35;cursor:default}
+  #cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:14px 22px}
+  .card{position:relative;background:linear-gradient(180deg,#161e2e,#131a28);border:1px solid var(--line);border-radius:12px;padding:12px 14px 12px 17px;cursor:pointer;transition:all .18s;overflow:hidden}
+  .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#33405a}
+  .card.active-cycle::before{background:linear-gradient(180deg,#41d199,#22d3ee);box-shadow:0 0 10px rgba(65,209,153,.55)}
+  .card:hover{border-color:#3d5a7a;transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.35), 0 0 12px rgba(34,211,238,.08)}
+  .card .head{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted)}
+  .card .head b{color:var(--text);font-weight:600}
+  .badge{font-size:11px;padding:1px 9px;border-radius:999px;border:1px solid}
+  .badge.active{color:#6ee7b7;border-color:rgba(110,231,183,.4);background:rgba(110,231,183,.08);box-shadow:0 0 8px rgba(110,231,183,.25)}
+  .badge.expired{color:#8b98ab;border-color:#33405a;background:rgba(139,152,171,.06)}
+  .card .nums{display:flex;gap:18px;margin-top:8px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .card .nums b{display:block;font-size:17px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+  #models-chart{width:100%;height:210px;background:linear-gradient(180deg,#171f30,#141b2a);border:1px solid #26314a;border-radius:14px}
+  footer{color:#7b8ba3;font-size:11.5px;padding:10px 22px 18px;text-align:center}
+  footer::before{content:"";display:block;width:min(560px,60%);height:1px;margin:0 auto 10px;
+    background:linear-gradient(90deg, transparent, rgba(148,180,220,.22), transparent)}
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <div class="title"><span class="dot">◉</span>GLM Coding Plan · 用量曲线<span class="sub" id="meta">加载中…</span></div>
+    <div class="spacer"></div>
+    <div class="ranges" id="ranges"></div>
+    <div class="custom">起 <input type="date" id="start"> ~ 止 <input type="date" id="end"> <button class="btn" id="apply">应用</button></div>
+    <button class="btn" id="refresh">刷新</button>
+  </div>
+</header>
+<main><div id="chart"></div></main>
+<section id="models-sec" style="display:none">
+  <div class="mhead"><b>模型用量</b>
+    <span class="nav">
+      <button id="models-prev" title="上一页">◀</button>
+      <span class="sub" id="models-day" style="min-width:86px;text-align:center;white-space:nowrap">今日</span>
+      <button id="models-next" title="下一页">▶</button>
+    </span>
+    <button id="models-month" class="btn" title="按月汇总查看">月</button>
+    <button id="models-exit" class="btn" style="display:none;padding:1px 8px;font-size:11px" title="回到按日查看">✕ 回今日</button>
+    <span class="sub" style="opacity:.8">拖选 / 双击曲线 / 点卡片 → 该时段 · 「月」按月汇总 · 双击空白回到今日</span>
+    <span class="sub" id="models-meta"></span>
+  </div>
+  <div id="models-chart"></div>
+</section>
+<section id="cards"></section>
+<footer>实线＝逐次观测采样；虚线＋空心圆＝重置边界到首个观测的衔接（重置时刻额度为满额）· 折线断开＝该时段无有效采样（程序未运行或查询失败），不补造采样；周期最终使用率未知 · 数据来自本机历史，只读</footer>
+
+<script>
+const GAP_MS = 15 * 60 * 1000;
+const RANGES = [["今日", "today"], ["全部", 0], ["近 24 小时", 1], ["近 3 天", 3], ["近 7 天", 7], ["近 14 天", 14]];
+const MODEL_PALETTE = ["#22d3ee", "#8b5cf6", "#41d199", "#f4be43", "#f4535e"];
+let RAW = null, activeChip = "今日";
+// View state re-applied on every render so the 60 s auto-refresh keeps the
+// user's zoom: "today" (default: first cycle reaching into the local day →
+// now, recomputed as time passes), "all", or absolute start/end timestamps
+// captured from wheel/brush/slider zoom events. Absolute, not percents:
+// percents are fractions of the data extent, which grows with every sample,
+// so re-applying them would silently slide the window. endValue = Infinity
+// marks "follow the newest sample" (right-edge zooms, 近 N 天 chips).
+let zoomState = {type: "today"};
+const chart = echarts.init(document.getElementById("chart"), null, {renderer: "canvas"});
+const modelsChart = echarts.init(document.getElementById("models-chart"), null, {renderer: "canvas"});
+
+function quotaColor(remaining) {
+  remaining = Math.max(0, Math.min(100, remaining));
+  const [a, b] = remaining <= 50 ? [[244,83,94],[244,190,67]] : [[244,190,67],[65,209,153]];
+  const t = remaining <= 50 ? remaining / 50 : (remaining - 50) / 50;
+  const mix = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  return "#" + mix.map(v => v.toString(16).padStart(2, "0")).join("");
+}
+function rgba(hex, alpha) {
+  return `rgba(${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)},${alpha})`;
+}
+const local = ts => new Date(ts).toLocaleString("zh-CN", {month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"});
+
+function areaLayers(key, data, c0, c1, smooth = 0.18) {
+  // Two stacked areas give the fill independent gradients: a left→right hue
+  // layer tracking the line color, and a vertical veil in the panel color
+  // that melts it downward — 上下渐变与左右渐变互不干扰，接缝处两侧同色。
+  return [
+    {name: "fill", id: "f:" + key, type: "line", data, smooth, z: 1,
+     lineStyle: {opacity: 0}, showSymbol: false, silent: true, tooltip: {show: false},
+     areaStyle: {color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+       {offset: 0, color: rgba(c0, 0.32)}, {offset: 1, color: rgba(c1, 0.32)}])}},
+    {name: "fade", id: "m:" + key, type: "line", data, smooth, z: 2,
+     lineStyle: {opacity: 0}, showSymbol: false, silent: true, tooltip: {show: false},
+     areaStyle: {color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+       {offset: 0, color: "rgba(20,27,42,0)"},
+       {offset: 0.5, color: "rgba(20,27,42,0.30)"},
+       {offset: 1, color: "rgba(20,27,42,0.92)"}])}},
+  ];
+}
+
+function periodSeries(period) {
+  const rows = period.samples.slice().sort((x, y) => x[0] - y[0]);
+  const data = [];
+  let prev = null;
+  for (const row of rows) {
+    if (prev !== null && row[0] - prev > GAP_MS) data.push([prev + 1, null]);  // downtime gap: break the line
+    data.push([row[0], row[1]]);
+    prev = row[0];
+  }
+  const first = rows.length ? rows[0][1] : 80, last = rows.length ? rows[rows.length - 1][1] : 80;
+  const name = `${period.provider_name} · 重置 ${local(period.reset_at)}${period.status === "active" ? " · 当前" : ""}`;
+  return [
+    ...areaLayers(period.provider_id + "@" + period.reset_at, data, quotaColor(first), quotaColor(last)),
+    {
+      name, id: "p:" + period.reset_at, type: "line", data, smooth: 0.18, z: 4,
+      showSymbol: false, symbolSize: 5,
+      triggerLineEvent: true,
+      emphasis: {focus: "series", itemStyle: {borderColor: "#fff", borderWidth: 1}},
+      lineStyle: {width: 2.5,
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          {offset: 0, color: quotaColor(first)}, {offset: 1, color: quotaColor(last)}])},
+      markLine: {symbol: "none", silent: true, animation: false,
+        lineStyle: {color: "#44546f", type: "dashed", width: 1},
+        label: {color: "#8fa1bd", fontSize: 10, position: "insideEndTop",
+          backgroundColor: "rgba(13,18,32,.72)", padding: [2, 6], borderRadius: 6,
+          formatter: () => "重置 " + local(period.reset_at)},
+        data: [{xAxis: period.reset_at}]},
+    },
+  ];
+}
+
+let GLOBAL_SPAN = null;  // [first sample, last sample]: the axis extent, for zoom-percentage ↔ time math
+
+function todayWindowStart() {
+  // Earliest cycle that reached into the local calendar day (such a cycle can
+  // have started last evening); when today has no observations yet, the most
+  // recent 24 h are a closer default than the whole history.
+  const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+  const m0 = midnight.getTime();
+  let start = null;
+  for (const period of (RAW && RAW.periods) || []) {
+    if (!period.samples || !period.samples.length || period.reset_at <= m0) continue;
+    const candidate = period._start_at || period.samples[0][0];
+    if (start == null || candidate < start) start = candidate;
+  }
+  return start != null ? start : Date.now() - 24 * 3600e3;
+}
+function todayStart() {
+  // Clamped to the data span so a short history never shows a blank left half.
+  if (!GLOBAL_SPAN) return null;
+  return Math.max(todayWindowStart(), GLOBAL_SPAN[0]);
+}
+function applyZoomState() {
+  // Re-play the current view AFTER setOption(..., true): value-based zoom
+  // fields inside the option get re-normalized to percentages by the paired
+  // inside/slider dataZoom components and drift, while dispatchAction applies
+  // exact boundaries (the proven card-click path). This also restores the
+  // user's zoom after each 60 s refresh re-render.
+  if (!GLOBAL_SPAN) return;
+  programmaticZoom = true;
+  if (zoomState.type === "today") {
+    // ECharts silently corrupts both bounds when endValue passes the last
+    // sample (percent clamps to 100 and the window shifts left), so the view
+    // ends at the newest observation — "now" while the widget is sampling.
+    chart.dispatchAction({type: "dataZoom", startValue: todayStart(), endValue: GLOBAL_SPAN[1]});
+  } else if (zoomState.type === "all") {
+    chart.dispatchAction({type: "dataZoom", start: 0, end: 100});
+  } else {
+    chart.dispatchAction({type: "dataZoom",
+                          startValue: Math.max(zoomState.startValue, GLOBAL_SPAN[0]),
+                          endValue: Math.min(zoomState.endValue, GLOBAL_SPAN[1])});
+  }
+}
+
+
+function render() {
+  const periods = (RAW && RAW.periods) || [];
+  let t0 = Infinity, t1 = -Infinity;
+  for (const period of periods) {
+    for (const sample of period.samples) {
+      if (sample[0] < t0) t0 = sample[0];
+      if (sample[0] > t1) t1 = sample[0];
+    }
+  }
+  GLOBAL_SPAN = t0 === Infinity ? null : [t0, t1];
+  // A period starts when the previous period of the same provider resets; that
+  // boundary is a fact of the API (quota back to full), not an observation.
+  const lastReset = new Map();
+  for (const period of periods.slice().sort((a, b) => a.reset_at - b.reset_at)) {
+    const key = period.provider_id || period.provider_name;
+    period._start_at = lastReset.has(key) ? lastReset.get(key) : null;
+    lastReset.set(key, period.reset_at);
+  }
+  document.getElementById("meta").textContent =
+    `${periods.length} 个周期 · ${periods.reduce((s, p) => s + p.samples.length, 0)} 条采样 · 更新于 ${RAW ? new Date(RAW.generated_at).toLocaleTimeString("zh-CN") : "-"}`;
+  const series = [];
+  for (const period of periods) {
+    series.push(...periodSeries(period));
+    if (period._start_at && period.samples.length) {
+      const first = period.samples[0];
+      const bdata = [[period._start_at, 100], [first[0], first[1]]];
+      series.push(
+        // The bridge fill mirrors the observed fill so the two melt into each
+        // other: its hue runs 100%→first sample and meets the observed fill's
+        // left edge at exactly the same color, veil on top of both. The layer
+        // key carries a "b" marker: the bridge start IS the previous period's
+        // reset, so a bare start key would collide with its fill-layer ids
+        // ("id duplicates" aborts the whole setOption).
+        ...areaLayers(period.provider_id + "@b" + period._start_at, bdata,
+                      quotaColor(100), quotaColor(first[1]), 0),
+        {
+          name: `重置衔接 ${local(period._start_at)}`, id: "b:" + period._start_at, type: "line", z: 3,
+          data: bdata,
+          lineStyle: {width: 1.6, type: [5, 4], color: rgba(quotaColor(100), 0.75)},
+          showSymbol: false, tooltip: {show: false},
+          markPoint: {silent: true, animation: false,
+            symbol: "circle", symbolSize: 9,
+            itemStyle: {color: "#0d1220", borderColor: "#41d199", borderWidth: 2},
+            label: {show: false},
+            data: [{coord: [period._start_at, 100]}]},
+        });
+    }
+  }
+  chart.setOption({
+    animationDurationUpdate: 420, animationEasingUpdate: "cubicOut",
+    backgroundColor: "transparent",
+    tooltip: {trigger: "axis", backgroundColor: "#151c28", borderColor: "#2c3950",
+      textStyle: {color: "#edf3fb", fontSize: 12},
+      axisPointer: {type: "cross", lineStyle: {color: "#3d5a7a"}, crossStyle: {color: "#3d5a7a"}},
+      valueFormatter: v => v == null ? "-" : `剩余 ${Number(v.toFixed(1))}%`},
+    grid: {left: 46, right: 22, top: 30, bottom: 64},
+    xAxis: {type: "time", axisLine: {lineStyle: {color: "#2c3950"}}, axisTick: {show: false},
+      axisLabel: {color: "#9aaac0", hideOverlap: true,
+        formatter: value => echarts.time.format(value, "{MM}-{dd} {HH}:{mm}", false)},
+      splitLine: {show: false}},
+    yAxis: {type: "value", min: 0, max: 100, interval: 25, name: "剩余 %", nameTextStyle: {color: "#9aaac0"},
+      axisLabel: {color: "#9aaac0", formatter: "{value}%"},
+      splitLine: {lineStyle: {color: "#1d2941", type: [3, 5]}}},
+    dataZoom: [
+      {type: "inside", filterMode: "none", zoomOnMouseWheel: true, moveOnMouseMove: true},
+      {type: "slider", height: 16, bottom: 10, borderColor: "#232f44", backgroundColor: "#101726",
+        fillerColor: "rgba(34,211,238,.10)", handleStyle: {color: "#22d3ee", borderColor: "#22d3ee"},
+        moveHandleStyle: {color: "#2c3950"}, textStyle: {color: "#9aaac0", fontSize: 10},
+        labelFormatter: value => echarts.time.format(value, "{MM}-{dd} {HH}:{mm}", false)}],
+    series,
+  }, true);
+  applyZoomState();
+  renderModels();
+  renderCards(periods);
+}
+
+function fmtTokens(value) {
+  value = Number(value) || 0;
+  if (value >= 1e8) return (value / 1e8).toFixed(2) + " 亿";
+  if (value >= 1e4) return (value / 1e4).toFixed(1) + " 万";
+  return String(Math.round(value));
+}
+
+function costTipText(cost) {
+  // Hover breakdown: per-model tokens × blended per-million price, plus the
+  // fixed input/output blend the estimate assumes (the API gives no split).
+  // The 合计 line sums the ROUNDED per-model figures so the tooltip always
+  // adds up internally, even when rounding shifts it a yuan off the headline.
+  const share = Math.round((cost.inputShare != null ? cost.inputShare : 0.8) * 100);
+  const parts = cost.parts || [];
+  const lines = ["API估价口径（按量刊牌价估算，非实付）："];
+  let roundedTotal = 0;
+  for (const part of parts) {
+    const yuan = Math.round(part.cny);
+    roundedTotal += yuan;
+    lines.push(`${part.name} ${fmtTokens(part.tokens)} × ¥${part.perMillion}/百万 ≈ ¥${yuan.toLocaleString("en-US")}`);
+  }
+  if (parts.length) lines.push(`合计 ≈ ¥${roundedTotal.toLocaleString("en-US")}`);
+  lines.push(`每百万单价 = 输入价×${share}% + 输出价×${100 - share}%`);
+  return lines.join("\n");
+}
+
+let usageQuery = null;  // null = 今日；{date}；{start, end, label}
+function fmtLocalDate(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+function describeDay(day) {
+  if (!day) return "今日";
+  const date = new Date(day + "T12:00:00");
+  const weekday = ["日", "一", "二", "三", "四", "五", "六"][date.getDay()];
+  return day.slice(5).replace("-", "月 ") + "日 周" + weekday;
+}
+function bjStamp(ms) {
+  // Beijing time is a fixed UTC+8 offset; no locale needed.
+  return new Date(ms + 8 * 3600e3).toISOString().slice(0, 19).replace("T", " ");
+}
+function describeRange(startMs, endMs) {
+  const p = n => String(n).padStart(2, "0");
+  const s = new Date(startMs), e = new Date(endMs);
+  return `${p(s.getMonth() + 1)}-${p(s.getDate())} ${p(s.getHours())}:${p(s.getMinutes())}~${p(e.getHours())}:${p(e.getMinutes())}`;
+}
+
+function selectCycleUsage(period) {
+  if (!period || !period.samples || !period.samples.length) return;
+  const startMs = period._start_at || period.samples[0][0];
+  // The active cycle's reset lies in the future and the server rejects future
+  // window ends ("window end is in the future"), which used to make the
+  // current cycle show "该时段无模型用量数据" — clamp the end to now.
+  const endMs = Math.min(period.reset_at, Date.now());
+  usageQuery = {start: bjStamp(startMs), end: bjStamp(endMs),
+                label: describeRange(startMs, endMs) + " 周期"};
+  loadUsage();
+}
+
+function currentMonthKey() {
+  const bj = new Date(Date.now() + 8 * 3600e3);
+  return `${bj.getUTCFullYear()}-${String(bj.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+function monthWindow(monthKey) {
+  // Beijing calendar month as a query window; the current month ends at now.
+  const [year, month] = monthKey.split("-").map(Number);
+  const startMs = Date.UTC(year, month - 1, 1) - 8 * 3600e3;
+  const fullEndMs = Date.UTC(year, month, 1) - 8 * 3600e3 - 1000;
+  const isCurrent = monthKey === currentMonthKey();
+  return {month: monthKey, start: bjStamp(startMs), end: bjStamp(Math.min(fullEndMs, Date.now())),
+          label: `${year} 年 ${month} 月${isCurrent ? "（至今）" : ""}`};
+}
+
+async function loadUsage() {
+  const query = usageQuery;
+  const isCycle = !!(query && query.start && !query.month);
+  const section = document.getElementById("models-sec");
+  section.style.display = "";
+  // 容器此前是 display:none,init 时宽度被冻结在 100px;显示后必须 resize 一次,否则柱状图永远是窄条
+  modelsChart.resize();
+  document.getElementById("models-exit").style.display = query ? "" : "none";
+  document.getElementById("models-prev").disabled = isCycle;
+  document.getElementById("models-next").disabled =
+    isCycle || (query && query.month ? query.month >= currentMonthKey()
+              : !query || !query.date || query.date >= fmtLocalDate(new Date()));
+  document.getElementById("models-day").textContent = query ? (query.label || describeDay(query.date)) : "今日";
+  document.getElementById("models-meta").textContent = "加载中…";
+  modelsChart.showLoading({text: "", color: "#22d3ee", maskColor: "rgba(13,18,32,.4)"});
+  let url = "/models";
+  if (query && query.start) url += `?start=${encodeURIComponent(query.start)}&end=${encodeURIComponent(query.end)}`;
+  else if (query && query.date) url += "?date=" + query.date;
+  let payload = null;
+  try {
+    payload = await (await fetch(url, {cache: "no-store"})).json();
+  } catch (err) { /* fall through to empty */ }
+  modelsChart.hideLoading();
+  const tm = payload && payload.models;
+  const tools = (payload && payload.tools && payload.tools.tools) || [];
+  if (!tm || !tm.models || !tm.models.length || !tm.hourLabels || !tm.hourLabels.length) {
+    document.getElementById("models-meta").textContent =
+      isCycle ? "该时段无模型用量数据" : (query && query.date ? "该日无模型用量数据" : "暂无模型用量数据");
+    modelsChart.clear();
+    renderToolChips(tools);
+    return;
+  }
+  // The per-model totalTokens field follows the calendar day, not the window;
+  // summing the (window-filtered) hourly series gives the true window split.
+  const chips = tm.models.slice(0, 4)    .map((m, i) => `<span style="color:${MODEL_PALETTE[i % MODEL_PALETTE.length]}">●</span> ${m.modelName} ${fmtTokens(m.hourTokens.reduce((a, b) => a + b, 0))}`)
+    .join(" · ");
+  // API-valued money estimate for the queried span (today / cycle / brush /
+  // month). The plan itself has no time-of-use pricing and no peak quota
+  // multiplier was observed in the credits metering, so the peak hours are
+  // shown as an informational share only. Hover the figure for the formula.
+  const cost = (payload && payload.cost) || null;
+  let costNote = "";
+  if (cost && cost.cny != null && cost.cny >= 1) {
+    costNote = ` ｜ <span class="cost-tip" id="cost-note">API估价 ≈¥${Math.round(cost.cny).toLocaleString("en-US")}` +
+               (cost.peakPct == null ? "" : ` · 高峰14-18时 ${Math.round(cost.peakPct)}%`) + `</span>`;
+  } else if (cost && cost.peakPct != null) {
+    // Sub-yuan spans (early mornings) keep the informational peak share.
+    costNote = ` ｜ 高峰14-18时 ${Math.round(cost.peakPct)}%`;
+  }
+  const metaHost = document.getElementById("models-meta");
+  metaHost.innerHTML = `${chips} ｜ 合计 ${fmtTokens(tm.totalTokens)} · ${tm.totalCalls} 次调用${costNote}`;
+  const costSpan = document.getElementById("cost-note");
+  if (costSpan && cost) costSpan.setAttribute("data-formula", costTipText(cost));
+  // Month view aggregates the hourly series into per-day stacks.
+  let hours, seriesData;
+  if (query && query.month) {
+    const dayKeys = [], dayIndex = new Map();
+    for (const label of tm.hourLabels) {
+      const key = label.slice(5, 10);
+      if (!dayIndex.has(key)) { dayIndex.set(key, dayKeys.length); dayKeys.push(key); }
+    }
+    hours = dayKeys;
+    seriesData = tm.models.map(m => {
+      const sums = new Array(dayKeys.length).fill(0);
+      m.hourTokens.forEach((value, i) => sums[dayIndex.get(tm.hourLabels[i].slice(5, 10))] += value);
+      return sums;
+    });
+  } else {
+    hours = tm.hourLabels.map(label => label.slice(11) || label);
+    seriesData = tm.models.map(m => m.hourTokens);
+  }
+  modelsChart.setOption({
+    animationDurationUpdate: 420,
+    backgroundColor: "transparent",
+    tooltip: {trigger: "axis", backgroundColor: "#151c28", borderColor: "#2c3950",
+      textStyle: {color: "#edf3fb", fontSize: 12},
+      valueFormatter: v => v == null ? "-" : fmtTokens(v) + " tokens"},
+    grid: {left: 74, right: 16, top: 14, bottom: 24},
+    xAxis: {type: "category", data: hours, axisTick: {show: false},
+      axisLine: {lineStyle: {color: "#2c3950"}}, axisLabel: {color: "#9aaac0", interval: 2}},
+    yAxis: {type: "value", axisLabel: {color: "#9aaac0", fontSize: 10, formatter: v => fmtTokens(v)},
+      splitLine: {lineStyle: {color: "#1d2941", type: [3, 5]}}},
+    series: tm.models.map((m, i) => ({
+      name: m.modelName, type: "bar", stack: "today", barWidth: "58%",
+      itemStyle: {color: MODEL_PALETTE[i % MODEL_PALETTE.length],
+        borderRadius: i === 0 ? [3, 3, 0, 0] : 0},
+      emphasis: {focus: "series"}, data: seriesData[i],
+    })),
+  }, true);
+  renderToolChips(tools);
+}
+
+function renderToolChips(tools) {
+  // MCP tool call counts live next to the models meta line.
+  let host = document.getElementById("tools-chips");
+  if (!tools.length) { if (host) host.remove(); return; }
+  if (!host) {
+    host = document.createElement("span");
+    host.id = "tools-chips";
+    host.className = "sub";
+    document.getElementById("models-meta").after(host);
+  }
+  host.textContent = "MCP：" + tools.slice(0, 4).map(t => `${t.toolName} ${t.totalUsageCount} 次`).join(" · ");
+}
+
+document.getElementById("models-prev").onclick = () => {
+  if (usageQuery && usageQuery.month) {
+    const [year, month] = usageQuery.month.split("-").map(Number);
+    const shifted = new Date(Date.UTC(year, month - 2, 1));
+    usageQuery = monthWindow(`${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`);
+  } else {
+    const base = usageQuery && usageQuery.date ? new Date(usageQuery.date + "T12:00:00") : new Date();
+    base.setDate(base.getDate() - 1);
+    usageQuery = {date: fmtLocalDate(base)};
+  }
+  loadUsage();
+};
+document.getElementById("models-next").onclick = () => {
+  if (usageQuery && usageQuery.month) {
+    const [year, month] = usageQuery.month.split("-").map(Number);
+    const shifted = new Date(Date.UTC(year, month, 1));
+    const key = `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
+    if (key > currentMonthKey()) return;
+    usageQuery = monthWindow(key);
+  } else {
+    if (!usageQuery || !usageQuery.date) return;
+    const base = new Date(usageQuery.date + "T12:00:00");
+    base.setDate(base.getDate() + 1);
+    if (fmtLocalDate(base) > fmtLocalDate(new Date())) return;
+    usageQuery = {date: fmtLocalDate(base)};
+  }
+  loadUsage();
+};
+document.getElementById("models-month").onclick = () => {
+  usageQuery = monthWindow(currentMonthKey());
+  loadUsage();
+};
+document.getElementById("models-exit").onclick = () => {
+  usageQuery = null;
+  loadUsage();
+};
+// Clicking a period line on the main chart switches the usage panel to that cycle.
+chart.on("click", params => {
+  if (!params.seriesId || !params.seriesId.startsWith("p:")) return;
+  const resetMs = Number(params.seriesId.slice(2));
+  const period = ((RAW && RAW.periods) || []).find(p => p.reset_at === resetMs);
+  selectCycleUsage(period);
+});
+
+// Brush/wheel/slider zoom on the main chart re-queries the usage panel for the
+// visible span (debounced), so dragging over one 5-hour cycle shows its usage.
+let zoomDebounce = null, programmaticZoom = false;
+chart.on("dataZoom", event => {
+  if (programmaticZoom) { programmaticZoom = false; return; }
+  const batch = (event.batch && event.batch[0]) || event;
+  const percentStart = batch.start, percentEnd = batch.end;
+  if (percentStart == null || !GLOBAL_SPAN) return;
+  // Capture the window as absolute timestamps: percents are fractions of the
+  // data extent, which grows with every sample, so re-applying stored
+  // percents would silently slide the window left. A zoom whose right edge
+  // sits at ~100% keeps following the newest data instead.
+  const [span0, span1] = GLOBAL_SPAN, span = (span1 - span0) || 1;
+  zoomState = {type: "abs",
+               startValue: span0 + span * percentStart / 100,
+               endValue: percentEnd >= 99.5 ? Infinity : span0 + span * percentEnd / 100};
+  clearTimeout(zoomDebounce);
+  zoomDebounce = setTimeout(() => {
+    const [span0, span1] = GLOBAL_SPAN;
+    const startMs = span0 + (span1 - span0) * percentStart / 100;
+    const endMs = span0 + (span1 - span0) * percentEnd / 100;
+    const spanMs = endMs - startMs;
+    if (spanMs < 30 * 60e3 || spanMs > 45 * 86400e3) {
+      document.getElementById("models-meta").textContent =
+        spanMs < 30 * 60e3 ? "选段过短（不足 30 分钟），未查询" : "选段过长（超过 45 天），未查询";
+      return;
+    }
+    usageQuery = {start: bjStamp(startMs), end: bjStamp(endMs),
+                  label: describeRange(startMs, endMs) + " 选段"};
+    loadUsage();
+  }, 1200);
+});
+
+// Double-click selects the cycle under the cursor: prefer the hit series, fall
+// back to whichever period covers the clicked time (lines are thin, users aim
+// at the region). Double-click outside any period returns to the today view.
+chart.on("dblclick", params => {
+  const periods = (RAW && RAW.periods) || [];
+  let period = null;
+  if (params.seriesId && params.seriesId.startsWith("p:")) {
+    const resetMs = Number(params.seriesId.slice(2));
+    period = periods.find(p => p.reset_at === resetMs);
+  } else if (params.event && params.event.offsetX != null) {
+    const moment = chart.convertFromPixel({xAxisIndex: 0}, params.event.offsetX);
+    if (Number.isFinite(moment)) {
+      period = periods.find(p => p.samples.length &&
+        moment >= p.samples[0][0] - 15 * 60e3 && moment <= p.reset_at + 15 * 60e3);
+    }
+  }
+  if (period) { selectCycleUsage(period); return; }
+  resetTodayView();
+  usageQuery = null;
+  loadUsage();
+});
+
+function renderModels() {
+  loadUsage();
+}
+
+function renderCards(periods) {
+  const host = document.getElementById("cards");
+  host.innerHTML = "";
+  for (const period of periods.slice(0, 60)) {
+    const card = document.createElement("div");
+    card.className = "card" + (period.status === "active" ? " active-cycle" : "");
+    card.onclick = () => {
+      const span = Math.max((period.reset_at - period.samples[0][0]) * 0.08, 20 * 60 * 1000);
+      zoomTo(period.samples[0][0] - span, period.reset_at + span);
+      selectCycleUsage(period);
+    };
+    const remaining = period.samples.length ? period.samples[period.samples.length - 1][1] : null;
+    card.innerHTML = `
+      <div class="head"><b>${period.provider_name} · ${period.plan_levels.join("/")}</b>
+        <span class="badge ${period.status === "active" ? "active" : "expired"}">${period.status === "active" ? "当前周期" : "已过期"}</span></div>
+      <div class="head" style="margin-top:2px">重置 ${local(period.reset_at)}</div>
+      <div class="nums">
+        <div>剩余<b style="color:${quotaColor(remaining == null ? 50 : remaining)}">${remaining == null ? "?" : remaining.toFixed(0) + "%"}</b></div>
+        <div>采样<b>${period.samples.length}</b></div>
+        <div>观测峰值已用<b>${period.peak_used_percent.toFixed(0)}%</b></div>
+      </div>`;
+    host.appendChild(card);
+  }
+}
+
+function setChip(label) {
+  activeChip = label;
+  document.querySelectorAll(".chip").forEach(el => el.classList.toggle("active", el.textContent === label));
+}
+function zoomTo(startValue, endValue) {
+  programmaticZoom = true;
+  clearTimeout(zoomDebounce);  // the view changed; a pending span query is stale
+  if (startValue == null) {
+    zoomState = {type: "all"};
+    chart.dispatchAction({type: "dataZoom", start: 0, end: 100});
+    return;
+  }
+  // Store the requested bounds verbatim (endValue may be Infinity); clamping
+  // happens at apply time so a future-pinned end simply waits for the data.
+  zoomState = {type: "abs", startValue, endValue};
+  if (GLOBAL_SPAN) chart.dispatchAction({type: "dataZoom",
+    startValue: Math.max(startValue, GLOBAL_SPAN[0]),
+    endValue: Math.min(endValue, GLOBAL_SPAN[1])});
+}
+function resetTodayView() {
+  setChip("今日");
+  clearTimeout(zoomDebounce);  // cancel a pending stale 选段 query
+  zoomState = {type: "today"};
+  const startValue = todayStart();
+  programmaticZoom = true;
+  if (startValue == null || !GLOBAL_SPAN) chart.dispatchAction({type: "dataZoom", start: 0, end: 100});
+  else chart.dispatchAction({type: "dataZoom", startValue, endValue: GLOBAL_SPAN[1]});
+}
+function applyRange(label, mode) {
+  setChip(label);
+  if (mode === "today") return resetTodayView();
+  if (!mode) return zoomTo(null, null);
+  // Endless end: the window keeps its trailing edge on the newest sample.
+  zoomTo(Date.now() - mode * 86400e3, Infinity);
+}
+
+const ranges = document.getElementById("ranges");
+for (const [label, mode] of RANGES) {
+  const chip = document.createElement("span");
+  chip.className = "chip" + (label === "今日" ? " active" : "");
+  chip.textContent = label;
+  chip.onclick = () => applyRange(label, mode);
+  ranges.appendChild(chip);
+}
+document.getElementById("apply").onclick = () => {
+  const s = document.getElementById("start").value, e = document.getElementById("end").value;
+  if (!s || !e || e < s) { setChip("全部"); return zoomTo(null, null); }
+  setChip("自定义");
+  zoomTo(new Date(s + "T00:00:00").getTime(), new Date(e + "T23:59:59").getTime());
+};
+document.getElementById("refresh").onclick = load;
+async function load() {
+  try { RAW = await (await fetch("/data", {cache: "no-store"})).json(); render(); }
+  catch (err) { document.getElementById("meta").textContent = "读取失败：" + err; }
+}
+window.addEventListener("resize", () => { chart.resize(); modelsChart.resize(); });
+setInterval(load, 60_000);
+load();
+</script>
+</body>
+</html>

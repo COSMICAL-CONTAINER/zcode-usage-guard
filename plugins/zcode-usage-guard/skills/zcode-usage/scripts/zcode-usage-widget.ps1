@@ -25,6 +25,18 @@ $showEvt = New-Object System.Threading.EventWaitHandle($false, [System.Threading
 $wakeFile = Join-Path $env:USERPROFILE '.zcode\scripts\zcode-usage-widget.wake'
 $script:lastWake = if (Test-Path $wakeFile) { (Get-Item $wakeFile).LastWriteTimeUtc } else { [datetime]::MinValue }
 
+# 错误/慢刷新日志:任何异常与超慢刷新都追加到 widget-error.log,用于排查"悬浮窗消失/未响应"
+$script:errorLog = Join-Path $env:USERPROFILE '.zcode\scripts\widget-error.log'
+function Write-WidgetLog([string]$msg) {
+  try {
+    # 简单轮转:超过 512KB 归档为 .old,防止诊断噪音无上限增长
+    if ((Test-Path $script:errorLog) -and ((Get-Item $script:errorLog -ErrorAction Stop).Length -gt 512KB)) {
+      Move-Item -Force -Path $script:errorLog -Destination ($script:errorLog + '.old') -ErrorAction Stop
+    }
+    Add-Content -Path $script:errorLog -Value ('{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'), $msg) -Encoding UTF8 -ErrorAction Stop
+  } catch { }
+}
+
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Add-Type -Namespace GLMNative -Name Hotkey -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -41,8 +53,11 @@ public class GLMComposition {
   public struct WCAD { public int Attrib; public IntPtr Data; public int SizeOfData; }
   [DllImport("user32.dll")]
   public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WCAD data);
-  public static bool EnableBlur(IntPtr hwnd, uint gradient) {
-    var ap = new AccentPolicy { AccentState = 3, AccentFlags = 2, GradientColor = gradient };
+  public static bool EnableBlur(IntPtr hwnd, int gradient) {
+    // GradientColor 是 DWORD(0xAABBGGRR):PS 里带高 alpha 位的颜色是负 Int32,
+    // 用 uint 参数会在调用方转换阶段抛异常(悬浮窗凭空消失的真凶),这里统一 unchecked 收编
+    uint g = unchecked((uint)gradient);
+    var ap = new AccentPolicy { AccentState = 3, AccentFlags = 2, GradientColor = g };
     IntPtr p = Marshal.AllocHGlobal(Marshal.SizeOf(ap));
     Marshal.StructureToPtr(ap, p, false);
     var d = new WCAD { Attrib = 19, Data = p, SizeOfData = Marshal.SizeOf(ap) };
@@ -108,14 +123,6 @@ $xamlText = @'
     <SolidColorBrush x:Key="BorderBrushR" Color="#1AFFFFFF"/>
     <SolidColorBrush x:Key="RootBgBrush" Color="#E014171C"/>
   </Window.Resources>
-  <Window.ContextMenu>
-    <ContextMenu>
-      <MenuItem x:Name="MenuRefresh" Header="立即刷新"/>
-      <MenuItem x:Name="MenuKey" Header="配置 API Key…"/>
-      <Separator/>
-      <MenuItem x:Name="MenuExit" Header="退出"/>
-    </ContextMenu>
-  </Window.ContextMenu>
   <Border x:Name="Root" CornerRadius="16" Background="{DynamicResource RootBgBrush}" BorderBrush="{DynamicResource BorderBrushR}" BorderThickness="1"
           Margin="10" Padding="18">
     <StackPanel>
@@ -129,7 +136,7 @@ $xamlText = @'
           <TextBlock x:Name="BtnRefresh" Text="↻" FontSize="13" Foreground="{DynamicResource SecondaryBrush}" Cursor="Hand"
                      ToolTip="立即刷新" Margin="0,0,12,0"/>
           <TextBlock x:Name="BtnClose" Text="✕" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource SecondaryBrush}"
-                     Cursor="Hand" ToolTip="收起面板(Ctrl+G 唤回;右键菜单可退出)"/>
+                     Cursor="Hand" ToolTip="收起面板(Ctrl+G 唤回)"/>
         </StackPanel>
       </Grid>
       <!-- meta:14 高,+12 -->
@@ -186,7 +193,7 @@ $xamlText = @'
               <ComboBox x:Name="SetNumFmt" Width="150" Height="24" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center">
                 <ComboBoxItem Content="紧凑 53.4M"/>
                 <ComboBoxItem Content="完整 53,452,123"/>
-                <ComboBoxItem Content="中文 5345.2万"/>
+                <ComboBoxItem Content="中文 5345.2 万"/>
               </ComboBox>
             </Grid>
           </StackPanel>
@@ -223,6 +230,24 @@ $xamlText = @'
                 </ComboBox>
                 <ComboBox x:Name="SetHotkeyKey" Width="76" Height="24" FontSize="11.5"/>
               </StackPanel>
+            </Grid>
+        <Grid Height="26" Margin="0,8,0,0">
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <TextBlock Text="手动凭据" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+            <TextBlock Text=" ?" FontSize="10.5" FontWeight="Bold" Foreground="#0A84FF" Cursor="Hand" VerticalAlignment="Center"
+                       ToolTip="查询失败或想手动指定服务商/Key 时使用;只存本机,悬浮窗与终端 CLI 共用"/>
+          </StackPanel>
+          <Border x:Name="BtnOpenSetup" CornerRadius="6" Background="{DynamicResource TrackBrush}" Padding="10,4" Cursor="Hand" HorizontalAlignment="Right" VerticalAlignment="Center">
+            <TextBlock Text="🔑 配置 API Key…" FontSize="11" Foreground="{DynamicResource SecondaryBrush}"/>
+          </Border>
+        </Grid>
+            <Grid Height="26" Margin="0,8,0,0">
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="额度采样记录" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text=" ?" FontSize="10.5" FontWeight="Bold" Foreground="#0A84FF" Cursor="Hand" VerticalAlignment="Center"
+                           ToolTip="开启后每次成功查询把五小时池水位存入本地历史(~/.zcode/scripts/quota-samples.jsonl),📈 历史曲线才有数据;默认关——普通用户只查不记,零写盘"/>
+              </StackPanel>
+              <CheckBox x:Name="SetSamples" HorizontalAlignment="Right" VerticalAlignment="Center"/>
             </Grid>
           </StackPanel>
         </Border>
@@ -346,6 +371,8 @@ $xamlText = @'
       <!-- footer:11.5 medium labelColor 当日总量;右侧 💹 悬浮本机/账号对比;失败态露出「🔑 配置 API Key」 -->
       <Grid x:Name="FooterGrid">
         <TextBlock x:Name="FLabel" Text="" FontSize="11.5" FontWeight="Medium" Foreground="{DynamicResource LabelBrush}" VerticalAlignment="Center"/>
+        <TextBlock x:Name="BtnCurve" Text="📈" FontSize="12" Foreground="{DynamicResource SecondaryBrush}" Cursor="Hand" ToolTip="用量曲线(历史水位)"
+                   HorizontalAlignment="Right" Margin="0,0,46,0" VerticalAlignment="Center"/>
         <TextBlock x:Name="BtnLocal" Text="💹" FontSize="12" Foreground="{DynamicResource SecondaryBrush}" Cursor="Hand" ToolTip="本机 / 账号消耗对比"
                    HorizontalAlignment="Right" Margin="0,0,26,0" VerticalAlignment="Center"/>
         <Border x:Name="BtnKey" CornerRadius="6" Background="#0A84FF" Padding="10,4" HorizontalAlignment="Right" Margin="26,0,0,0"
@@ -426,6 +453,7 @@ $Sep = & $el 'Sep'
 $FooterGrid = & $el 'FooterGrid'
 $BtnKey = & $el 'BtnKey'
 $BtnLocal = & $el 'BtnLocal'
+$BtnCurve = & $el 'BtnCurve'
 $LocalPopup = & $el 'LocalPopup'
 $LPct = & $el 'LPct'
 $LFill = & $el 'LFill'
@@ -455,6 +483,7 @@ $SetSessionInject = & $el 'SetSessionInject'
 $SetAlertsOn = & $el 'SetAlertsOn'
 $AlertsPanel = & $el 'AlertsPanel'
 $SetResumeGuard = & $el 'SetResumeGuard'
+$BtnOpenSetup = & $el 'BtnOpenSetup'
 $BtnSaveSettings = & $el 'BtnSaveSettings'
 $BtnCancelSettings = & $el 'BtnCancelSettings'
 $rows = @()
@@ -495,7 +524,13 @@ function Save-Pos {
 # 顶层加载一次,供 定时器间隔/全局热键/阈值 toast 使用;⚙ 面板保存后回写此文件
 $settingsFile = Join-Path $env:USERPROFILE '.zcode\scripts\quota-guard-settings.json'
 function Read-SettingsJson {
-  try { if (Test-Path $settingsFile) { return (Get-Content $settingsFile -Raw | ConvertFrom-Json) } } catch { }
+  try {
+    if (Test-Path $settingsFile) {
+      $raw = Get-Content $settingsFile -Raw
+      if ($null -ne $raw) { $raw = $raw.TrimStart([char]0xFEFF) }  # 剥 BOM:PS5.1 的 Set-Content -Encoding UTF8 会带 BOM
+      return ($raw | ConvertFrom-Json)
+    }
+  } catch { }
   return $null
 }
 $script:refreshChoices = @(1, 5, 10, 15, 30)
@@ -506,7 +541,7 @@ function ModsName([int]$m) { $hit = @($script:modChoices | Where-Object { $_.V -
 function HotkeyName { return "$(ModsName $script:hotkeyModifiers)+$([char]$script:hotkeyKey)" }
 function Update-HotkeyHints {
   $Hint.Text = "$(HotkeyName) 唤出 / 收起 · 拖拽面板可移动位置"
-  $BtnClose.ToolTip = "收起面板($(HotkeyName) 唤回;右键菜单可退出)"
+  $BtnClose.ToolTip = "收起面板($(HotkeyName) 唤回)"
 }
 $_cfg = Read-SettingsJson
 $script:refreshMinutes = if ($_cfg -and ($script:refreshChoices -contains [int]$_cfg.refreshMinutes)) { [int]$_cfg.refreshMinutes } else { 10 }
@@ -520,6 +555,8 @@ $script:tokenFmt = if ($_cfg -and $_cfg.tokenFmt) { [string]$_cfg.tokenFmt } els
 $script:alertsEnabled = if ($_cfg -and $null -ne $_cfg.alertsEnabled) { [bool]$_cfg.alertsEnabled } else { $true }
 $script:sessionInject = if ($_cfg -and $null -ne $_cfg.sessionInject) { [bool]$_cfg.sessionInject } else { $false }
 $script:resumeGuard = if ($_cfg -and $null -ne $_cfg.resumeGuard) { [bool]$_cfg.resumeGuard } else { $true }
+# 额度采样记录(默认关):普通用户零写盘;开启后每次查询记录水位,📈 历史曲线才有数据
+$script:quotaSamples = if ($_cfg -and $null -ne $_cfg.quotaSamples) { [bool]$_cfg.quotaSamples } else { $false }
 $_cfg = $null
 Update-HotkeyHints  # 底部提示与实际注册的快捷键一致(此前 XAML 里写死 Ctrl+G,改键后不刷新)
 
@@ -606,7 +643,8 @@ function Get-IsDarkTheme {
     return ($v -eq 0)
   } catch { return $true }
 }
-$script:blurOk = $true
+# 磨砂玻璃(EnableBlur)已停用:v0.3.0 起外观恒定为普通半透明卡片(RootSemi),
+# 不再调用 BlurBehind——它曾因配色 Tint 为负 Int32 抛异常导致进程崩溃、悬浮窗消失
 function Apply-Theme {
   $script:theme = if (Get-IsDarkTheme) { $themes.dark } else { $themes.light }
   $map = @{ Label='LabelBrush'; Secondary='SecondaryBrush'; Value='ValueBrush'
@@ -619,12 +657,8 @@ function Apply-Theme {
   }
   $rootBrush = $win.Resources['RootBgBrush']
   if ($rootBrush) {
-    # 磨砂可用时半透明底让窗口后的模糊透出来;失败则退不透明底
-    $bg = if ($script:blurOk) { $script:theme.RootSemi } else { $script:theme.RootOpaque }
-    $rootBrush.Color = [System.Windows.Media.ColorConverter]::ConvertFromString($bg)
-  }
-  if ($script:helper -and $script:blurOk) {
-    [GLMComposition]::EnableBlur($script:helper.Handle, $script:theme.BlurTint) | Out-Null
+    # 固定半透明底(不开 BlurBehind):外观恒定,不随配色 Tint 漂移
+    $rootBrush.Color = [System.Windows.Media.ColorConverter]::ConvertFromString($script:theme.RootSemi)
   }
 }
 # Fmt.tint:>=85 红,>=60 橙,其余绿(0.20,0.72,0.45)
@@ -779,7 +813,7 @@ function Update-QuotaToast {
   } catch { }
 }
 
-function Invoke-Refresh {
+function Invoke-RefreshImpl {
   # 从手动配置/设置回到数据视图:恢复各区块可见性(配置态把它们全部收起了)
   Hide-Setup
   Hide-Settings
@@ -870,7 +904,7 @@ function Invoke-Refresh {
   $models = @($t.modelSummaryList | ForEach-Object { '{0} {1}' -f (Format-ModelName $_.modelName), (Format-Tokens ([double]$_.totalTokens)) })
   $FSub.Text = $models -join ' · '
   # 窗口宽度自适应(两步,以真实布局为准):
-  # 1) 用独立 NoWrap TextBlock 估一个初值(38 = Root Border 左右 Padding 18×2 + 边框 1×2,再留 10 富余);
+  # 1) 用独立 NoWrap TextBlock 估一个初值(58 = Margin 10×2 + 边框 1×2 + Padding 18×2,再留 10 富余);
   # 2) 实测 FSub 是否仍换行(ActualHeight 超过单行≈17px),换行就逐步加宽,直到单行或屏幕上限 80%。
   #    不盲信测量值——字体回退/度量差异会让估宽偏窄,末尾数字曾被挤到第二行。
   $m = New-Object System.Windows.Controls.TextBlock
@@ -878,7 +912,7 @@ function Invoke-Refresh {
   $m.TextWrapping = 'NoWrap'
   $m.Text = $FSub.Text
   $m.Measure([Windows.Size]::new(10000, 100))
-  $need = [Math]::Ceiling($m.DesiredSize.Width) + 48
+  $need = [Math]::Ceiling($m.DesiredSize.Width) + 58
   $cap = [Math]::Max(560, [Math]::Floor([System.Windows.SystemParameters]::WorkArea.Width * 0.8))
   $win.Width = [Math]::Min($cap, [Math]::Max(372, $need))
   $win.UpdateLayout()
@@ -887,6 +921,12 @@ function Invoke-Refresh {
     $win.Width = [Math]::Min($cap, $win.Width + 16)
     $win.UpdateLayout()
     $tries++
+  }
+  # 诊断:只在发生换行修正(tries>0)或修正后仍未单行时记录,避免成功路径刷屏
+  if ($tries -gt 0) {
+    Write-WidgetLog ('宽度自适应: +' + (16 * $tries) + 'px → ' + $win.Width + 'px(估宽偏窄,已由换行检测修正)')
+  } elseif ($FSub.ActualHeight -gt 19) {
+    Write-WidgetLog ('宽度自适应放弃: 仍换行 @ ' + $win.Width + 'px, ActualHeight=' + [Math]::Round($FSub.ActualHeight, 1))
   }
   # 加宽后若超出屏幕右缘,左移回工作区内
   $wa = [System.Windows.SystemParameters]::WorkArea
@@ -910,6 +950,27 @@ function Invoke-Refresh {
   $script:lastTotalTokens = [double]$t.totalTokensUsage
   $script:lastTotalCalls = [double]$t.totalModelCallCount
   $Meta.Text = ('{0} 套餐 · 更新于 {1}' -f $q.level.ToUpper(), (Get-Date -Format 'HH:mm:ss'))
+}
+
+# 带兜底的刷新入口:任何异常只记日志并显示"刷新异常",绝不带崩进程/窗口(窗口在 Show 之前崩溃的最常见死法)
+function Invoke-Refresh {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    Invoke-RefreshImpl
+    # 慢刷新记录:内存紧张/网络慢时刷新会拖长,期间窗口可能短暂"未响应",留证据便于排查
+    if ($sw.Elapsed.TotalSeconds -gt 8) { Write-WidgetLog ('慢刷新 ' + [int]$sw.Elapsed.TotalSeconds + 's') }
+  } catch {
+    Write-WidgetLog ('刷新异常: ' + $_.Exception.Message)
+    if ($_.ScriptStackTrace) { Write-WidgetLog ('  at ' + ($_.ScriptStackTrace -replace "`r?`n", ' | ')) }
+    try {
+      $Meta.Text = '刷新异常'
+      $FLabel.Text = '点 ↻ 重试'
+      $PeakBanner.Visibility = 'Collapsed'
+      foreach ($r in $rows) { $r.Panel.Visibility = 'Collapsed' }
+      $PeakRow.Visibility = 'Collapsed'; $OffPeakRow.Visibility = 'Collapsed'
+      $SpeedRow.Visibility = 'Collapsed'; $FSub.Visibility = 'Collapsed'
+    } catch { }
+  }
 }
 
 # —— 🔑 手动配置表单:面板内切换(收起数据区,展示 服务商下拉 + Key 输入),窗口高度自适应 ——
@@ -976,7 +1037,17 @@ function Set-ThresholdCombo($combo, [string]$key, $cfg) {
   }
   if ($v -le 0) { $combo.SelectedIndex = 0; return }
   $idx = [Array]::IndexOf($script:thresholdChoices, $v)
-  $combo.SelectedIndex = if ($idx -ge 0) { $idx + 1 } else { 4 }
+  if ($idx -ge 0) { $combo.SelectedIndex = $idx + 1; return }
+  # 界外合法值(如手工编辑过 settings 的 87%):补一个自定义项并选中,避免打开面板即被改写成 95
+  $label = [string]$v + '%(自定义)'
+  $hit = $null
+  foreach ($it in $combo.Items) { if ($it.Content -eq $label) { $hit = $it } }
+  if (-not $hit) {
+    $hit = New-Object System.Windows.Controls.ComboBoxItem
+    $hit.Content = $label
+    $combo.Items.Add($hit) | Out-Null
+  }
+  $combo.SelectedItem = $hit
 }
 function Show-Settings {
         $Meta.Visibility = 'Collapsed' # 面板自带「⚙ 设置」标题,状态行不重复显示
@@ -1010,6 +1081,7 @@ function Show-Settings {
   $SetResumeGuard.IsEnabled = $script:alertsEnabled
   $SetSessionInject.IsChecked = $script:sessionInject
   $SetResumeGuard.IsChecked = $script:resumeGuard
+  $SetSamples.IsChecked = if ($cfg -and $null -ne $cfg.quotaSamples) { [bool]$cfg.quotaSamples } else { $script:quotaSamples }
   $SetHint.Text = ''
   $win.Width = 372  # 设置视图内容窄,恢复默认宽;回到数据视图时按模型名单行宽度自适应
   $SettingsPanel.Visibility = 'Visible'
@@ -1017,11 +1089,16 @@ function Show-Settings {
 function Save-Settings {
   try { Add-Content -Path (Join-Path $env:USERPROFILE '.zcode\scripts\save-settings.log') -Value ("ENTER " + (Get-Date -Format 'HH:mm:ss')) } catch { }
   $refresh = $script:refreshChoices[[Math]::Max(0, $SetRefresh.SelectedIndex)]
-  # 每池独立阈值:下拉索引 0 = 关闭(0),1..4 = 80/85/90/95
+  # 每池独立阈值:下拉索引 0 = 关闭(0);其余按所选百分比解析,含 Set-ThresholdCombo 补的自定义项(如 87%(自定义))
   $ths = @{}
   foreach ($pair in @(@('prompt5h', $SetTh5h), @('weekly', $SetThWeekly), @('mcp', $SetThMcp))) {
-    $i = [Math]::Max(0, $pair[1].SelectedIndex)
-    $ths[$pair[0]] = if ($i -eq 0) { 0 } else { [int]$script:thresholdChoices[$i - 1] }
+    $cb = $pair[1]
+    $i = [Math]::Max(0, $cb.SelectedIndex)
+    if ($i -eq 0) { $ths[$pair[0]] = 0; continue }
+    $label = if ($cb.SelectedItem) { [string]$cb.SelectedItem.Content } else { '' }
+    $num = if ($label -match '^(\d+)(?:\.\d+)?%') { [int]$Matches[1] } else { 95 }
+    if ($num -lt 0 -or $num -gt 99) { $num = 95 }
+    $ths[$pair[0]] = $num
   }
   $mods = $script:modChoices[[Math]::Max(0, $SetHotkeyMod.SelectedIndex)].V
   $vk = $script:keyVks[[Math]::Max(0, $SetHotkeyKey.SelectedIndex)]
@@ -1032,6 +1109,7 @@ function Save-Settings {
   $alertsEnabled = [bool]$SetAlertsOn.IsChecked
   $sessionInject = [bool]$SetSessionInject.IsChecked
   $resumeGuard = [bool]$SetResumeGuard.IsChecked
+  $quotaSamples = [bool]$SetSamples.IsChecked
   # 合并保留 guard 的其它配置键(如 warnIntervalMinutes)
   $cfg = Read-SettingsJson
   $obj = @{
@@ -1046,6 +1124,7 @@ function Save-Settings {
     alertsEnabled = $alertsEnabled
     sessionInject = $sessionInject
     resumeGuard = $resumeGuard
+    quotaSamples = $quotaSamples
   }
   try {
     # -ErrorAction Stop:全局 SilentlyContinue 会吞掉非终止错误,导致"看起来保存了其实没写"
@@ -1066,6 +1145,7 @@ function Save-Settings {
   $script:alertsEnabled = $alertsEnabled
   $script:sessionInject = $sessionInject
   $script:resumeGuard = $resumeGuard
+  $script:quotaSamples = $quotaSamples
   # 快捷键:解旧注新;被占用则回退原键并留在面板提示
   if ($mods -ne $script:hotkeyModifiers -or $vk -ne $script:hotkeyKey) {
     $ok = $false
@@ -1099,6 +1179,10 @@ $BtnSettings.Add_MouseLeftButtonUp({ Show-Settings })
 $BtnSaveSettings.Add_MouseEnter({ $BtnSaveSettings.Background = Brush '#3D9BFF' })
 $BtnSaveSettings.Add_MouseLeave({ $BtnSaveSettings.Background = Brush '#0A84FF' })
 $BtnSaveSettings.Add_MouseLeftButtonUp({ Save-Settings })
+# 🔑 API Key 手动配置入口(右键菜单已移除,归入 ⚙ 设置)
+$BtnOpenSetup.Add_MouseEnter({ $BtnOpenSetup.Background = Brush '#3D9BFF' })
+$BtnOpenSetup.Add_MouseLeave({ $BtnOpenSetup.Background = Brush $script:theme.Secondary })
+$BtnOpenSetup.Add_MouseLeftButtonUp({ Show-Setup })
 # 额度告警总开关联动:取消勾选时,组内下面的阈值/注入/续跑全部置灰锁定(实时预览,保存才落盘)
 $SetAlertsOn.Add_Click({
   $on = [bool]$SetAlertsOn.IsChecked
@@ -1121,7 +1205,7 @@ $BtnClose.Add_MouseLeftButtonUp({ $win.Hide() })
 $script:interactive = @(
   $SetRefresh, $SetHotkeyMod, $SetHotkeyKey, $SetTh5h, $SetThWeekly, $SetThMcp,
   $BtnSaveSettings, $BtnCancelSettings, $SetupBase, $SetupKey, $BtnSaveKey, $BtnClearKey,
-  $BtnSettings, $BtnRefresh, $BtnClose, $BtnKey, $BtnLocal
+  $BtnSettings, $BtnRefresh, $BtnClose, $BtnKey, $BtnLocal, $BtnOpenSetup, $BtnCurve, $BtnCurve
 )
 function Test-OnInteractive($el) {
   $cur = $el
@@ -1148,14 +1232,8 @@ $win.Add_SourceInitialized({
     # 全局热键被其他软件占用:醒目提示,避免"按了没反应"无从排查
     $mods = (@{ 1 = 'Alt'; 2 = 'Ctrl'; 4 = 'Shift'; 8 = 'Win' }[[int]$script:hotkeyModifiers])
     $key = [char]$script:hotkeyKey
-    $Hint.Text = "⚠ ${mods}+$key 已被其他软件占用,快捷键不可用(改键:脚本顶部 `\$hotkeyKey)"
+    $Hint.Text = "⚠ ${mods}+$key 已被其他软件占用,快捷键不可用(改键:⚙ 设置 → 唤出快捷键)"
     $Hint.Foreground = Brush '#FFA94D'
-  }
-  # 磨砂玻璃:BlurBehind + 随主题的深/浅 tint;失败回退不透明底色
-  $Root = $win.FindName('Root')
-  $script:blurOk = [GLMComposition]::EnableBlur($script:helper.Handle, $script:theme.BlurTint)
-  if (-not $script:blurOk) {
-    $Root.Background = Brush $script:theme.RootOpaque
   }
   # 💹 本机/账号对比弹窗:悬停即开,移开即关
   $LocalPopup.PlacementTarget = $BtnLocal
@@ -1254,12 +1332,41 @@ $wakeTimer.Add_Tick({
 })
 $wakeTimer.Start()
 
-$menuItems = @{}
-foreach ($mi in $win.ContextMenu.Items) {
-  if ($mi -is [System.Windows.Controls.MenuItem]) { $menuItems[$mi.Header] = $mi }
+# 📈 用量曲线:拉起 quota-curve.mjs(本地只读服务 + 浏览器窗口;单实例,已有服务直接再开一窗)
+# 采样(自动记录)默认关:未开启时不起服务,提示先到 ⚙ 设置开启
+function Invoke-CurveLaunch {
+  # 点 📈 即视为要用曲线:采样没开就自动开启并落盘(⚙ 里的勾选框下次打开会同步显示为已开)
+  # 免去"先去 ⚙ 勾选"的流程,也不会出现开关状态错位导致的打不开
+  try {
+    $cfgObj = Read-SettingsJson
+    if (-not $cfgObj -or $cfgObj.quotaSamples -ne $true) {
+      $o = if ($cfgObj) { $cfgObj } else { @{} }
+      $o.quotaSamples = $true
+      $json = ConvertTo-Json $o -Depth 5
+      [System.IO.File]::WriteAllText($settingsFile, $json)  # WriteAllText 不带 BOM,避免影响各处 JSON 读取
+      $script:quotaSamples = $true
+      Write-WidgetLog '采样记录已自动开启(点击 📈 触发)'
+      $Hint.Text = '已为你开启额度采样记录'
+      $Hint.Foreground = Brush '#3CB371'
+    }
+  } catch { }
+  $curveScript = Join-Path $env:USERPROFILE '.zcode\scripts\quota-curve.mjs'
+  if (-not (Test-Path $curveScript)) {
+    $cached = Get-ChildItem "$env:USERPROFILE\.zcode\cli\plugins\cache\*\zcode-usage*\*\skills\zcode-usage\scripts\quota-curve.mjs" -ErrorAction SilentlyContinue |
+      Sort-Object FullName -Descending | Select-Object -First 1
+    if ($cached) { $curveScript = $cached.FullName }
+  }
+  if ((Test-Path $curveScript) -and $script:nodeExe) {
+    Start-Process -WindowStyle Hidden -FilePath $script:nodeExe -ArgumentList "`"$curveScript`""
+    return
+  }
+  $Hint.Text = '⚠ 未找到 quota-curve.mjs 或 Node 不可用(可重新 --install)'
+  $Hint.Foreground = Brush '#FFA94D'
 }
-$menuItems['立即刷新'].Add_Click({ Invoke-Refresh })
-$menuItems['配置 API Key…'].Add_Click({ Show-Setup })
+# 📈 可见入口:当日行右侧,点击打开曲线页
+$BtnCurve.Add_MouseEnter({ $BtnCurve.Foreground = Brush $script:theme.Label })
+$BtnCurve.Add_MouseLeave({ $BtnCurve.Foreground = Brush $script:theme.Secondary })
+$BtnCurve.Add_MouseLeftButtonUp({ Invoke-CurveLaunch })
 
 # 🔑 按钮与配置表单:悬停变亮、点击打开/保存/清除;密码框里回车 = 保存
 $BtnKey.Add_MouseEnter({ $BtnKey.Background = Brush '#3D9BFF' })
@@ -1274,10 +1381,6 @@ $BtnClearKey.Add_MouseLeftButtonUp({
   Invoke-Refresh
 })
 $SetupKey.Add_KeyDown({ if ($_.Key -eq 'Return') { Save-Setup } })
-$menuItems['退出'].Add_Click({
-  try { if ($script:helper) { [GLMNative.Hotkey]::UnregisterHotKey($script:helper.Handle, 0xB001) | Out-Null } } catch { }
-  $timer.Stop(); $win.Close(); [Environment]::Exit(0)
-})
 
 # 应用主题(与 ZCode 外观一致);此后 zcodeTimer 每 2 秒探测 ZCode 配色并跟随切换
 $script:isDark = Get-IsDarkTheme
@@ -1285,8 +1388,27 @@ try { Apply-Theme } catch {
   try { Add-Content (Join-Path $env:USERPROFILE '.zcode\scripts\widget-theme.log') ("startup Apply-Theme THREW: " + $_.Exception.Message) } catch { }
 }
 
-Update-PeakBanner
-Invoke-Refresh
-$timer.Start()
-$win.Show()
+# UI 线程未处理异常兜底:记日志并标记 Handled,避免任何漏网异常直接带走进程(窗口凭空消失的死法)
+$win.Dispatcher.UnhandledException.Add({
+  param($s, $e)
+  try {
+    Write-WidgetLog ('UI 未处理异常: ' + $e.Exception.Message)
+    if ($e.Exception.StackTrace) { Write-WidgetLog ('  at ' + ($e.Exception.StackTrace -replace "`r?`n", ' | ')) }
+    $e.Handled = $true
+  } catch { }
+})
+
+try {
+  Update-PeakBanner
+  # 先 Show 再刷新:窗口未显示时布局引擎不给 ActualHeight(恒为 0),
+  # 宽度自适应的换行检测会失效;先亮窗口,刷新期间面板显示"正在读取…"是正常状态
+  $win.Show()
+  Invoke-Refresh
+  $timer.Start()
+} catch {
+  Write-WidgetLog ('启动失败: ' + $_.Exception.Message)
+  if ($_.ScriptStackTrace) { Write-WidgetLog ('  at ' + ($_.ScriptStackTrace -replace "`r?`n", ' | ')) }
+  # 即使启动期有异常也要把窗口亮出来、定时器跑起来,别让用户面对一个凭空消失的悬浮窗
+  try { $timer.Start(); $win.Show() } catch { }
+}
 [System.Windows.Threading.Dispatcher]::Run()
