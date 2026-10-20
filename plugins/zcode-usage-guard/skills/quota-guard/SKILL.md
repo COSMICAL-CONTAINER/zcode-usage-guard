@@ -11,8 +11,9 @@ description: 无人值守续跑协议。当用户要求长时间/通宵/无人�
 
 - 额度快照:`~/.zcode/scripts/usage-state.json`(由悬浮窗每 N 分钟、会话启动 hook 实时刷新)。
   字段:`pools[]{key,label,usedPct,resetAt}`,`resetAt` 是 epoch 毫秒。
-- 阈值:`~/.zcode/scripts/quota-guard-settings.json` 的 `threshold`(默认 95),**所有池共用**,
-  任一池达标即触发;快照里每池独立比对。
+- 阈值:`~/.zcode/scripts/quota-guard-settings.json` 的 `threshold`(默认 95)全局共用;
+  `thresholds{prompt5h,weekly,mcp}` 可按池覆盖(悬浮窗 ⚙ 保存即写全三池,支持任意 0–99 自定义值),
+  设 0 表示关闭该池;任一有效池达标即触发,快照里每池独立比对。
 - 绑定约束:**超阈值池中重置时间最晚者是绑定池**——每周额度耗尽时,5 小时池重置了也没用。
 - **登记制**:只有登记进 `~/.zcode/scripts/quota-guard-optin.json`
   (`{"sessions": {"<会话id>": {"at": <epoch>}}}`)的会话才会被拦截/告警;普通对话零打扰。

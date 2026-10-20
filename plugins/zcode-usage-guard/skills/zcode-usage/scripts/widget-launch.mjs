@@ -3,7 +3,7 @@
  * 跨平台悬浮窗启动器(插件 SessionStart hook 每会话调用一次)
  *
  * 按当前设备选择对应 UI 的悬浮窗:
- *   Windows → WPF 磨砂玻璃卡片(zcode-usage-widget.ps1,经 widget-launch.vbs)
+ *   Windows → WPF 半透明卡片(zcode-usage-widget.ps1,经 widget-launch.vbs)
  *   macOS   → 原生 ZCodeUsageHUD.app(需先在 macos/ 目录执行一次 bash build.sh)
  *   其他    → 静默跳过
  *
@@ -18,6 +18,22 @@ import { fileURLToPath } from 'node:url';
 const dir = path.dirname(fileURLToPath(import.meta.url));
 
 if (process.platform === 'win32') {
+  // 单实例兜底:先清掉历史实例再拉起。互斥量在"多会话钩子并发 + 历史实例被强制结束"的
+  // 场景下曾出现双实例共存,两个实例的设置面板互相覆盖对方保存的值,故改为确定性清理
+  try {
+    const { spawnSync } = await import('node:child_process');
+    spawnSync(
+      'powershell',
+      ['-NoProfile', '-Command',
+        "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'powershell.exe' -and $_.CommandLine -like '*zcode-usage-widget.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
+      { stdio: 'ignore', windowsHide: true, timeoutMs: 15000 },
+    );
+  } catch { }
+  // 等旧进程完全退出(互斥量/句柄释放),再拉起新实例
+  {
+    const { execSync } = await import('node:child_process');
+    try { execSync('ping -n 2 127.0.0.1', { stdio: 'ignore', windowsHide: true }); } catch { }
+  }
   // 先 touch 唤醒文件:已在运行的悬浮窗 250ms 内轮询到 mtime 变化即唤回(毫秒级、不再新起 PowerShell)
   const wakeFile = path.join(os.homedir(), '.zcode', 'scripts', 'zcode-usage-widget.wake');
   const now = new Date();

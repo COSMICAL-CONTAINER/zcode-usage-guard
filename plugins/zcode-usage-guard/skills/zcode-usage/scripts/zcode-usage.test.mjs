@@ -1,5 +1,5 @@
 // zcode-usage 纯函数单测(node --test,零依赖)
-// 运行:node --test plugins/zcode-usage/skills/zcode-usage/scripts/zcode-usage.test.mjs
+// 运行:node --test plugins/zcode-usage-guard/skills/zcode-usage/scripts/zcode-usage.test.mjs
 // 日历事实:2026-09-11 是周五,09-12 周六,09-13 周日,09-07 周一
 import test from 'node:test';
 import assert from 'node:assert/strict';

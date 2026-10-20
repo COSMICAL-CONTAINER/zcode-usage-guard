@@ -51,9 +51,9 @@ test('没有状态文件时静默通过', (t) => {
   assert.equal(run('UserPromptSubmit', dir), '');
 });
 
-test('快照过期(>30 分钟)时静默通过', (t) => {
+test('快照过期(>75 分钟,超过悬浮窗最大刷新档的 2.5 倍裕量)时静默通过', (t) => {
   const dir = tmpDir(t);
-  const state = stateAt(dir, [pool('prompt5h', 99, Date.now() + 3600e3)], 31 * 60_000);
+  const state = stateAt(dir, [pool('prompt5h', 99, Date.now() + 3600e3)], 76 * 60_000);
   assert.equal(run('Stop', dir, { state }), '');
 });
 
