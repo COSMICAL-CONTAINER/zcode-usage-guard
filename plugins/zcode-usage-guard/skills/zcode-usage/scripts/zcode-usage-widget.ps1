@@ -824,6 +824,7 @@ function Invoke-RefreshImpl {
   $FLabel.Margin = '0,0,0,0'
   $BtnKey.Visibility = 'Collapsed'
   $Meta.Text = '正在读取…'
+  $win.UpdateLayout()  # 先渲染加载态,再阻塞查询
   # 手动凭据走环境变量传给本次 node 子进程(脚本的 env 来源),不写命令行参数——ps 看不到 Key
   $mc = Read-ManualCred
   if ($mc) {
@@ -1165,6 +1166,7 @@ function Save-Settings {
   }
   Update-HotkeyHints  # 快捷键可能已变,底部提示同步
   Hide-Settings
+  $win.UpdateLayout()  # 先把"面板已收起"渲染出去,再进入耗时刷新
   Invoke-Refresh
 }
 
@@ -1191,7 +1193,7 @@ $SetAlertsOn.Add_Click({
   $SetSessionInject.IsEnabled = $on
   $SetResumeGuard.IsEnabled = $on
 })
-$BtnCancelSettings.Add_MouseLeftButtonUp({ Hide-Settings; Invoke-Refresh })
+$BtnCancelSettings.Add_MouseLeftButtonUp({ Hide-Settings })
 $BtnRefresh.Add_MouseEnter({ $BtnRefresh.Foreground = Brush $script:theme.Label })
 $BtnRefresh.Add_MouseLeave({ $BtnRefresh.Foreground = Brush $script:theme.Secondary })
 $BtnRefresh.Add_MouseLeftButtonUp({ Invoke-Refresh })
