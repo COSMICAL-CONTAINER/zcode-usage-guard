@@ -1075,12 +1075,12 @@ function Show-Settings {
   $SetModelName.SelectedIndex = if ($script:modelNameFmt -eq 'full') { 0 } else { 1 }
   $SetNumFmt.SelectedIndex = switch ($script:tokenFmt) { 'full' { 0 } 'cn' { 2 } default { 1 } }
   # 开关回填:告警总开关(联动组内 阈值/注入/续跑 可用性)与 会话注入(默认关)、续跑总开关
-  $SetAlertsOn.IsChecked = $script:alertsEnabled
-  $AlertsPanel.IsEnabled = $script:alertsEnabled
-  $SetSessionInject.IsEnabled = $script:alertsEnabled
-  $SetResumeGuard.IsEnabled = $script:alertsEnabled
-  $SetSessionInject.IsChecked = $script:sessionInject
-  $SetResumeGuard.IsChecked = $script:resumeGuard
+  $SetAlertsOn.IsChecked = if ($cfg -and $null -ne $cfg.alertsEnabled) { [bool]$cfg.alertsEnabled } else { $script:alertsEnabled }
+  $AlertsPanel.IsEnabled = $SetAlertsOn.IsChecked
+  $SetSessionInject.IsEnabled = $SetAlertsOn.IsChecked
+  $SetResumeGuard.IsEnabled = $SetAlertsOn.IsChecked
+  $SetSessionInject.IsChecked = if ($cfg -and $null -ne $cfg.sessionInject) { [bool]$cfg.sessionInject } else { $script:sessionInject }
+  $SetResumeGuard.IsChecked = if ($cfg -and $null -ne $cfg.resumeGuard) { [bool]$cfg.resumeGuard } else { $script:resumeGuard }
   $SetSamples.IsChecked = if ($cfg -and $null -ne $cfg.quotaSamples) { [bool]$cfg.quotaSamples } else { $script:quotaSamples }
   $SetHint.Text = ''
   $win.Width = 372  # 设置视图内容窄,恢复默认宽;回到数据视图时按模型名单行宽度自适应
@@ -1088,6 +1088,7 @@ function Show-Settings {
 }
 function Save-Settings {
   try { Add-Content -Path (Join-Path $env:USERPROFILE '.zcode\scripts\save-settings.log') -Value ("ENTER " + (Get-Date -Format 'HH:mm:ss')) } catch { }
+  Write-WidgetLog ('保存设置: 采样=' + [bool]$SetSamples.IsChecked + ' 告警=' + [bool]$SetAlertsOn.IsChecked + ' 注入=' + [bool]$SetSessionInject.IsChecked + ' 续跑=' + [bool]$SetResumeGuard.IsChecked)
   $refresh = $script:refreshChoices[[Math]::Max(0, $SetRefresh.SelectedIndex)]
   # 每池独立阈值:下拉索引 0 = 关闭(0);其余按所选百分比解析,含 Set-ThresholdCombo 补的自定义项(如 87%(自定义))
   $ths = @{}
