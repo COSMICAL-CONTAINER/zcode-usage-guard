@@ -18,6 +18,26 @@ import { fileURLToPath } from 'node:url';
 const dir = path.dirname(fileURLToPath(import.meta.url));
 
 if (process.platform === 'win32') {
+  // 会话自动唤回开关(⚙ 设置「会话自动唤回」,默认开):关闭时,
+  // 已有实例保持现状(不弹前、不重启),只有完全没有实例时才冷启动一次
+  let wakeOn = true;
+  try {
+    const s = JSON.parse(fs.readFileSync(
+      path.join(os.homedir(), '.zcode', 'scripts', 'quota-guard-settings.json'), 'utf8').replace(/^\uFEFF/, ''));
+    if (s.quotaWidgetWake === false) wakeOn = false;
+  } catch { }
+  // 实例计数(路径片段拼接,避免探测命令自匹配)
+  let count = 0;
+  try {
+    const { execSync } = await import('node:child_process');
+    const probe = 'powershell -NoProfile -Command "(Get-CimInstance Win32_Process | '
+      + "Where-Object { $_.Name -eq 'powershell.exe' -and $_.CommandLine -like '*zcode-usage"
+      + `-widget.ps1*' }).Count"`;
+    count = parseInt(String(execSync(probe, { encoding: 'utf8', windowsHide: true })).trim(), 10) || 0;
+  } catch { }
+  if (count > 0 && !wakeOn) {
+    process.exit(0); // 已有实例且关闭唤回:保持现状
+  }
   // 单实例兜底:先清掉历史实例再拉起。互斥量在"多会话钩子并发 + 历史实例被强制结束"的
   // 场景下曾出现双实例共存,两个实例的设置面板互相覆盖对方保存的值,故改为确定性清理
   try {

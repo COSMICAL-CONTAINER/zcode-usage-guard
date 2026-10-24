@@ -233,6 +233,14 @@ $xamlText = @'
             </Grid>
         <Grid Height="26" Margin="0,8,0,0">
           <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <Grid Height="26" Margin="0,8,0,0">
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="会话自动唤回" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text=" ?" FontSize="10.5" FontWeight="Bold" Foreground="#0A84FF" Cursor="Hand" VerticalAlignment="Center"
+                           ToolTip="开启后,每次新会话/子任务开始都会把悬浮窗弹到前台;关闭则保持现状(隐藏时保持隐藏)。运行工作流(多子任务)时建议关闭,避免反复弹前"/>
+              </StackPanel>
+              <CheckBox x:Name="SetWakeOnSession" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+            </Grid>
             <TextBlock Text="手动凭据" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
             <TextBlock Text=" ?" FontSize="10.5" FontWeight="Bold" Foreground="#0A84FF" Cursor="Hand" VerticalAlignment="Center"
                        ToolTip="查询失败或想手动指定服务商/Key 时使用;只存本机,悬浮窗与终端 CLI 共用"/>
@@ -483,6 +491,7 @@ $SetSessionInject = & $el 'SetSessionInject'
 $SetAlertsOn = & $el 'SetAlertsOn'
 $AlertsPanel = & $el 'AlertsPanel'
 $SetResumeGuard = & $el 'SetResumeGuard'
+$SetWakeOnSession = & $el 'SetWakeOnSession'
 $BtnOpenSetup = & $el 'BtnOpenSetup'
 $BtnSaveSettings = & $el 'BtnSaveSettings'
 $BtnCancelSettings = & $el 'BtnCancelSettings'
@@ -557,6 +566,8 @@ $script:sessionInject = if ($_cfg -and $null -ne $_cfg.sessionInject) { [bool]$_
 $script:resumeGuard = if ($_cfg -and $null -ne $_cfg.resumeGuard) { [bool]$_cfg.resumeGuard } else { $true }
 # 额度采样记录(默认关):普通用户零写盘;开启后每次查询记录水位,📈 历史曲线才有数据
 $script:quotaSamples = if ($_cfg -and $null -ne $_cfg.quotaSamples) { [bool]$_cfg.quotaSamples } else { $false }
+# 会话自动唤回(默认开):工作流等多子任务场景可关,避免悬浮窗反复弹到前台
+$script:quotaWidgetWake = if ($_cfg -and $null -ne $_cfg.quotaWidgetWake) { [bool]$_cfg.quotaWidgetWake } else { $true }
 $_cfg = $null
 Update-HotkeyHints  # 底部提示与实际注册的快捷键一致(此前 XAML 里写死 Ctrl+G,改键后不刷新)
 
@@ -1082,6 +1093,7 @@ function Show-Settings {
   $SetResumeGuard.IsEnabled = $SetAlertsOn.IsChecked
   $SetSessionInject.IsChecked = if ($cfg -and $null -ne $cfg.sessionInject) { [bool]$cfg.sessionInject } else { $script:sessionInject }
   $SetResumeGuard.IsChecked = if ($cfg -and $null -ne $cfg.resumeGuard) { [bool]$cfg.resumeGuard } else { $script:resumeGuard }
+  $SetWakeOnSession.IsChecked = if ($cfg -and $null -ne $cfg.quotaWidgetWake) { [bool]$cfg.quotaWidgetWake } else { $true }
   $SetSamples.IsChecked = if ($cfg -and $null -ne $cfg.quotaSamples) { [bool]$cfg.quotaSamples } else { $script:quotaSamples }
   $SetHint.Text = ''
   $win.Width = 372  # 设置视图内容窄,恢复默认宽;回到数据视图时按模型名单行宽度自适应
@@ -1111,6 +1123,7 @@ function Save-Settings {
   $alertsEnabled = [bool]$SetAlertsOn.IsChecked
   $sessionInject = [bool]$SetSessionInject.IsChecked
   $resumeGuard = [bool]$SetResumeGuard.IsChecked
+  $quotaWidgetWake = [bool]$SetWakeOnSession.IsChecked
   $quotaSamples = [bool]$SetSamples.IsChecked
   # 合并保留 guard 的其它配置键(如 warnIntervalMinutes)
   $cfg = Read-SettingsJson
@@ -1126,6 +1139,7 @@ function Save-Settings {
     alertsEnabled = $alertsEnabled
     sessionInject = $sessionInject
     resumeGuard = $resumeGuard
+    quotaWidgetWake = $quotaWidgetWake
     quotaSamples = $quotaSamples
   }
   try {
@@ -1147,6 +1161,7 @@ function Save-Settings {
   $script:alertsEnabled = $alertsEnabled
   $script:sessionInject = $sessionInject
   $script:resumeGuard = $resumeGuard
+  $script:quotaWidgetWake = $quotaWidgetWake
   $script:quotaSamples = $quotaSamples
   # 快捷键:解旧注新;被占用则回退原键并留在面板提示
   if ($mods -ne $script:hotkeyModifiers -or $vk -ne $script:hotkeyKey) {
