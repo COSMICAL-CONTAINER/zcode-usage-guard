@@ -1095,6 +1095,19 @@ function Show-Settings {
   $SetResumeGuard.IsChecked = if ($cfg -and $null -ne $cfg.resumeGuard) { [bool]$cfg.resumeGuard } else { $script:resumeGuard }
   $SetWakeOnSession.IsChecked = if ($cfg -and $null -ne $cfg.quotaWidgetWake) { [bool]$cfg.quotaWidgetWake } else { $true }
   $SetSamples.IsChecked = if ($cfg -and $null -ne $cfg.quotaSamples) { [bool]$cfg.quotaSamples } else { $script:quotaSamples }
+  # 采样开关拨动即落盘(独立于保存按钮,杜绝时序错位)
+  $SetSamples.Add_Click({
+    $v = [bool]$SetSamples.IsChecked
+    try {
+      $cfgObj = Read-SettingsJson
+      $o = if ($cfgObj) { $cfgObj } else { @{} }
+      $o.quotaSamples = $v
+      $json = ConvertTo-Json $o -Depth 5
+      [System.IO.File]::WriteAllText($settingsFile, $json)
+      $script:quotaSamples = $v
+      Write-WidgetLog ('采样开关切换: ' + $v + '(即时落盘)')
+    } catch { }
+  })
   $SetHint.Text = ''
   $win.Width = 372  # 设置视图内容窄,恢复默认宽;回到数据视图时按模型名单行宽度自适应
   $SettingsPanel.Visibility = 'Visible'
