@@ -231,8 +231,6 @@ $xamlText = @'
                 <ComboBox x:Name="SetHotkeyKey" Width="76" Height="24" FontSize="11.5"/>
               </StackPanel>
             </Grid>
-        <Grid Height="26" Margin="0,8,0,0">
-          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
             <Grid Height="26" Margin="0,8,0,0">
               <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="会话自动唤回" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
@@ -241,14 +239,16 @@ $xamlText = @'
               </StackPanel>
               <CheckBox x:Name="SetWakeOnSession" HorizontalAlignment="Right" VerticalAlignment="Center"/>
             </Grid>
-            <TextBlock Text="手动凭据" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
-            <TextBlock Text=" ?" FontSize="10.5" FontWeight="Bold" Foreground="#0A84FF" Cursor="Hand" VerticalAlignment="Center"
-                       ToolTip="查询失败或想手动指定服务商/Key 时使用;只存本机,悬浮窗与终端 CLI 共用"/>
-          </StackPanel>
-          <Border x:Name="BtnOpenSetup" CornerRadius="6" Background="{DynamicResource TrackBrush}" Padding="10,4" Cursor="Hand" HorizontalAlignment="Right" VerticalAlignment="Center">
-            <TextBlock Text="🔑 配置 API Key…" FontSize="11" Foreground="{DynamicResource SecondaryBrush}"/>
-          </Border>
-        </Grid>
+            <Grid Height="26" Margin="0,8,0,0">
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="手动凭据" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text=" ?" FontSize="10.5" FontWeight="Bold" Foreground="#0A84FF" Cursor="Hand" VerticalAlignment="Center"
+                           ToolTip="查询失败或想手动指定服务商/Key 时使用;只存本机,悬浮窗与终端 CLI 共用"/>
+              </StackPanel>
+              <Border x:Name="BtnOpenSetup" CornerRadius="6" Background="{DynamicResource TrackBrush}" Padding="10,4" Cursor="Hand" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <TextBlock Text="🔑 配置 API Key…" FontSize="11" Foreground="{DynamicResource SecondaryBrush}"/>
+              </Border>
+            </Grid>
             <Grid Height="26" Margin="0,8,0,0">
               <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="额度采样记录" FontSize="11.5" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
@@ -987,6 +987,7 @@ function Invoke-Refresh {
 
 # —— 🔑 手动配置表单:面板内切换(收起数据区,展示 服务商下拉 + Key 输入),窗口高度自适应 ——
 function Show-Setup {
+  Hide-Settings  # 入口在 ⚙ 设置面板里,打开配置表单时先收起设置,避免两个面板同屏叠加
   $Meta.Text = '手动配置'
   $PeakBanner.Visibility = 'Collapsed'
   foreach ($r in $rows) { $r.Panel.Visibility = 'Collapsed' }
@@ -1037,6 +1038,26 @@ foreach ($d in 0..9) {
 foreach ($it in $script:keyItems) { [void]$SetHotkeyKey.Items.Add($it) }
 
 function Hide-Settings { $SettingsPanel.Visibility = 'Collapsed' }
+
+# 取消设置:按打开设置时的快照恢复主视图可见性——不发网络请求,点取消立即回到原界面
+function Restore-MainView {
+  Hide-Settings
+  Hide-Setup
+  $s = $script:mainViewSnap
+  if (-not $s) { Invoke-Refresh; return }  # 异常路径兜底:没有快照就完整刷新
+  $Meta.Visibility = $s.Meta
+  $PeakBanner.Visibility = $s.PeakBanner
+  for ($i = 0; $i -lt $rows.Count; $i++) { $rows[$i].Panel.Visibility = $s.Rows[$i] }
+  $Sep.Visibility = $s.Sep
+  $FooterGrid.Visibility = $s.FooterGrid
+  $PeakRow.Visibility = $s.PeakRow
+  $OffPeakRow.Visibility = $s.OffPeakRow
+  $FSub.Visibility = $s.FSub
+  $SpeedRow.Visibility = $s.SpeedRow
+  $Hint.Visibility = $s.Hint
+  $BtnKey.Visibility = $s.BtnKey
+  $win.Width = $s.Width
+}
 # 每池阈值下拉回填:thresholds.<key> 覆盖全局;0 → 「关闭」(索引 0)
 function Set-ThresholdCombo($combo, [string]$key, $cfg) {
   $v = 95
@@ -1062,6 +1083,15 @@ function Set-ThresholdCombo($combo, [string]$key, $cfg) {
   $combo.SelectedItem = $hit
 }
 function Show-Settings {
+  # 快照当前主视图可见性:取消时按它原样恢复(Restore-MainView),不重查网络
+  $script:mainViewSnap = @{
+    Meta = $Meta.Visibility; PeakBanner = $PeakBanner.Visibility
+    Rows = @($rows | ForEach-Object { $_.Panel.Visibility })
+    Sep = $Sep.Visibility; FooterGrid = $FooterGrid.Visibility
+    PeakRow = $PeakRow.Visibility; OffPeakRow = $OffPeakRow.Visibility
+    FSub = $FSub.Visibility; SpeedRow = $SpeedRow.Visibility; Hint = $Hint.Visibility
+    BtnKey = $BtnKey.Visibility; Width = $win.Width
+  }
         $Meta.Visibility = 'Collapsed' # 面板自带「⚙ 设置」标题,状态行不重复显示
   $PeakBanner.Visibility = 'Collapsed'
   foreach ($r in $rows) { $r.Panel.Visibility = 'Collapsed' }
@@ -1221,7 +1251,7 @@ $SetAlertsOn.Add_Click({
   $SetSessionInject.IsEnabled = $on
   $SetResumeGuard.IsEnabled = $on
 })
-$BtnCancelSettings.Add_MouseLeftButtonUp({ Hide-Settings })
+$BtnCancelSettings.Add_MouseLeftButtonUp({ Restore-MainView })
 $BtnRefresh.Add_MouseEnter({ $BtnRefresh.Foreground = Brush $script:theme.Label })
 $BtnRefresh.Add_MouseLeave({ $BtnRefresh.Foreground = Brush $script:theme.Secondary })
 $BtnRefresh.Add_MouseLeftButtonUp({ Invoke-Refresh })
@@ -1376,6 +1406,7 @@ function Invoke-CurveLaunch {
       $json = ConvertTo-Json $o -Depth 5
       [System.IO.File]::WriteAllText($settingsFile, $json)  # WriteAllText 不带 BOM,避免影响各处 JSON 读取
       $script:quotaSamples = $true
+      $SetSamples.IsChecked = $true  # 同步已打开的 ⚙ 面板勾选框:否则面板里的旧未勾状态会被随后的「保存」写回关,今天 14:51 的采样丢失即此时序
       Write-WidgetLog '采样记录已自动开启(点击 📈 触发)'
       $Hint.Text = '已为你开启额度采样记录'
       $Hint.Foreground = Brush '#3CB371'
