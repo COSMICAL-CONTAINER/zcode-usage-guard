@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# GLM Coding Plan 桌面悬浮窗(Windows PowerShell 5.1+,零依赖)
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# GLM Coding Plan 桌面悬浮窗(Windows PowerShell 5.1+,零依赖)
 # UI 逐项照抄 macOS ZCodeUsageHUD 规格:372 宽 / 18 内边距 / 16 圆角 / 6px 胶囊进度条 / macOS 标签色阶梯
 # 配色与 ZCode 外观主题保持一致(探测 ZCode 窗口实际配色,深浅同步);ZCODE_WIDGET_THEME=light|dark 可强制
 # 高峰期提醒横幅(周一至周五 14:00–18:00 常驻);调试:ZCODE_WIDGET_PEAK=on 强制显示,ZCODE_WIDGET_PEAK_SHIFT=<小时数> 平移模拟时钟
@@ -687,7 +687,11 @@ function Set-Row($row, $label, $value, $pct, $sub) {
   # 进度条语义 = 剩余量:满条绿,随额度消耗缩短并变橙(用量≥60)变红(用量≥85);
   # 颜色仍按使用量分档(保持 60/85 两个告警点),长度按剩余绘制,所见即所剩
   $rem = 100 - [Math]::Min(100, [Math]::Max(0, $p))
-  $w = [Math]::Round($trackWidth * $rem / 100)
+  # 轨道宽度实时取自 Fill 的父 Border(ActualWidth):写死常数在卡片自适应宽度/不同 DPI 下会虚高,
+  # 曾把 86% 剩余画成 92%、98% 画成全满;首帧未布局(ActualWidth=0)时回退常数
+  $tw = [double]$row.Fill.Parent.ActualWidth
+  if ($tw -le 0) { $tw = $trackWidth }
+  $w = [Math]::Round($tw * $rem / 100)
   $row.Fill.Width = [Math]::Max($w, 6)
   $row.Sub.Text = $sub
 }
@@ -766,7 +770,9 @@ function Update-PeakBanner {
     else { '还剩 {0} 分' -f $left.Minutes }
   # 进度 = 高峰已进行时长 / 4h(14:00 起算,进入即至少画一个圆点)
   $p = ($now - $w.Start).TotalHours / 4.0 * 100
-  $fillW = [Math]::Round($trackWidth * [Math]::Min(100, [Math]::Max(0, $p)) / 100)
+  $bw = [double]$PeakBannerFill.Parent.ActualWidth
+  if ($bw -le 0) { $bw = $trackWidth }
+  $fillW = [Math]::Round($bw * [Math]::Min(100, [Math]::Max(0, $p)) / 100)
   $PeakBannerFill.Width = [Math]::Max($fillW, 4)
   $PeakBanner.Visibility = 'Visible'
 }
@@ -894,8 +900,13 @@ function Invoke-RefreshImpl {
     $p = [double]$l.percentage
     if ($l.type -eq 'TIME_LIMIT') {
       $rowByPool['mcp'] = $rows[2]
-      Set-Row $rows[2] '🔧  MCP 工具调用(1个月)' ('{0:N0} / {1:N0} 次' -f $l.currentValue, $l.usage) $p `
-        ('剩余 {0:N0} · ↻ {1} 重置 · {2}' -f $l.remaining, (Format-Clock $l.nextResetTime), (Format-Reset $l.nextResetTime))
+      # MCP 有精确次数:已用比例自己算(currentValue/usage),不信服务端 percentage——
+      # 它是滞后缓存(实测数字已到 140 而进度条还按 9% 画,看起来像"用了140次只掉几个点")
+      $mcpPct = if ([double]$l.usage -gt 0) { [double]$l.currentValue / [double]$l.usage * 100 } else { $p }
+      $mcpRem = if ($null -ne $l.remaining) { [double]$l.remaining } else { [double]$l.usage - [double]$l.currentValue }
+      # 主数值口径与其它行一致(剩余在前):剩余/总量;已用放副行
+      Set-Row $rows[2] '🔧  MCP 工具调用(1个月)' ('{0:N0} / {1:N0} 次' -f $mcpRem, $l.usage) $mcpPct `
+        ('已用 {0:N0} · ↻ {1} 重置 · {2}' -f $l.currentValue, (Format-Clock $l.nextResetTime), (Format-Reset $l.nextResetTime))
     } elseif ($l.unit -eq 3) {
       $rowByPool['prompt5h'] = $rows[0]
       Set-Row $rows[0] '🕐  5 小时 Prompt 池' ('剩余 {0:F1}%' -f (100 - $p)) $p `
