@@ -181,6 +181,7 @@ function periodSeries(period) {
 }
 
 let GLOBAL_SPAN = null;  // [first sample, last sample]: the axis extent, for zoom-percentage ↔ time math
+let VIEW_END = null;     // 轴/窗口右缘:最后一条采样,有预测时延伸到预测末端(+6min 给标注留位)
 
 function todayWindowStart() {
   // Earliest cycle that reached into the local calendar day (such a cycle can
@@ -210,16 +211,16 @@ function applyZoomState() {
   if (!GLOBAL_SPAN) return;
   programmaticZoom = true;
   if (zoomState.type === "today") {
-    // ECharts silently corrupts both bounds when endValue passes the last
-    // sample (percent clamps to 100 and the window shifts left), so the view
-    // ends at the newest observation — "now" while the widget is sampling.
-    chart.dispatchAction({type: "dataZoom", startValue: todayStart(), endValue: GLOBAL_SPAN[1]});
+    // 默认视图右缘 = VIEW_END:无预测时即最新采样("now"),有预测时延伸到
+    // 预测末端——xAxis.max 同步设为该值,边界与轴一致不会触发 ECharts 的
+    // 百分比钳制错位(见 xAxis.max)。
+    chart.dispatchAction({type: "dataZoom", startValue: todayStart(), endValue: VIEW_END});
   } else if (zoomState.type === "all") {
     chart.dispatchAction({type: "dataZoom", start: 0, end: 100});
   } else {
     chart.dispatchAction({type: "dataZoom",
                           startValue: Math.max(zoomState.startValue, GLOBAL_SPAN[0]),
-                          endValue: Math.min(zoomState.endValue, GLOBAL_SPAN[1])});
+                          endValue: Math.min(zoomState.endValue, VIEW_END)});
   }
 }
 
@@ -234,6 +235,13 @@ function render() {
     }
   }
   GLOBAL_SPAN = t0 === Infinity ? null : [t0, t1];
+  // ⚡ 预测虚线画在 (now, 重置] 的未来区:轴右缘与默认窗口必须一并延伸,
+  // 否则预测永远落在默认视图外,要手动缩小才能看到。+6 分钟余量给末端标注。
+  VIEW_END = GLOBAL_SPAN ? GLOBAL_SPAN[1] : 0;
+  for (const p of periods) {
+    if (p.forecast) VIEW_END = Math.max(VIEW_END, Math.min(p.forecast.zeroAtMs, p.reset_at));
+  }
+  if (VIEW_END > (GLOBAL_SPAN ? GLOBAL_SPAN[1] : 0)) VIEW_END += 6 * 60e3;
   // A period starts when the previous period of the same provider resets; that
   // boundary is a fact of the API (quota back to full), not an observation.
   const lastReset = new Map();
@@ -264,7 +272,7 @@ function render() {
         markPoint: {silent: true, animation: false,
           symbol: "circle", symbolSize: 8,
           itemStyle: {color: "#0d1220", borderColor: color, borderWidth: 2},
-          label: {show: true, position: "top", color, fontSize: 10,
+          label: {show: true, position: "left", distance: 8, color, fontSize: 10,
             formatter: () => (fc.burnsOutBeforeReset ? `⚡ ${local(endT).slice(0, 5)} 打满` : `⚡ 预计剩 ${fc.projectedRemainingAtReset.toFixed(0)}%`)},
           data: [{coord: [endT, endV]}]},
       });
@@ -305,7 +313,8 @@ function render() {
       axisPointer: {type: "cross", lineStyle: {color: "#3d5a7a"}, crossStyle: {color: "#3d5a7a"}},
       valueFormatter: v => v == null ? "-" : `剩余 ${Number(v.toFixed(1))}%`},
     grid: {left: 46, right: 22, top: 30, bottom: 64},
-    xAxis: {type: "time", axisLine: {lineStyle: {color: "#2c3950"}}, axisTick: {show: false},
+    xAxis: {type: "time", max: VIEW_END != null && GLOBAL_SPAN && VIEW_END > GLOBAL_SPAN[1] ? VIEW_END : null,
+      axisLine: {lineStyle: {color: "#2c3950"}}, axisTick: {show: false},
       axisLabel: {color: "#9aaac0", hideOverlap: true,
         formatter: value => echarts.time.format(value, "{MM}-{dd} {HH}:{mm}", false)},
       splitLine: {show: false}},
@@ -647,7 +656,7 @@ function zoomTo(startValue, endValue) {
   zoomState = {type: "abs", startValue, endValue};
   if (GLOBAL_SPAN) chart.dispatchAction({type: "dataZoom",
     startValue: Math.max(startValue, GLOBAL_SPAN[0]),
-    endValue: Math.min(endValue, GLOBAL_SPAN[1])});
+    endValue: Math.min(endValue, VIEW_END)});
 }
 function resetTodayView() {
   setChip("今日");
@@ -656,7 +665,7 @@ function resetTodayView() {
   const startValue = todayStart();
   programmaticZoom = true;
   if (startValue == null || !GLOBAL_SPAN) chart.dispatchAction({type: "dataZoom", start: 0, end: 100});
-  else chart.dispatchAction({type: "dataZoom", startValue, endValue: GLOBAL_SPAN[1]});
+  else chart.dispatchAction({type: "dataZoom", startValue, endValue: VIEW_END});
 }
 function applyRange(label, mode) {
   setChip(label);
