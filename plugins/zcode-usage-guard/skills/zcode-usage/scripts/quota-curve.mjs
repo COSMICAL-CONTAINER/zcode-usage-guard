@@ -19,7 +19,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  bjFmt, bjDayStartMs, readSamples, get, findCred, setCred,
+  bjFmt, bjDayStartMs, readSamples, get, findCred, setCred, forecastWindow,
   parseModelUsage, parseToolUsage, estimateCostCny, costBreakdownCny, peakHourShareCny,
 } from './zcode-usage.mjs';
 
@@ -64,6 +64,19 @@ export function curvePayloadFromFile(file, nowMs = Date.now()) {
     .map((p) => ({ ...p, plan_levels: [...p.plan_levels], status: p.reset_at > nowMs ? 'active' : 'expired' }))
     .sort((a, b) => b.reset_at - a.reset_at)
     .slice(0, 60); // 页面与 widget 同上限:一次画 60 个周期足够
+  // 燃尽预测:只对进行中的窗口做(最近 45 分钟采样最小二乘;数据不足/停滞为 null,页面不画)
+  for (const p of periods) {
+    if (p.status !== 'active' || p.samples.length < 2) continue;
+    const fc = forecastWindow(p.samples, nowMs);
+    if (!fc) continue;
+    p.forecast = {
+      perMinPct: fc.perMinPct, basedOnCount: fc.basedOnCount, spanMinutes: fc.spanMinutes,
+      lastAt: fc.lastAt, lastRemaining: fc.lastRemaining,
+      zeroAtMs: Math.min(fc.zeroAtMs, p.reset_at),
+      burnsOutBeforeReset: fc.zeroAtMs < p.reset_at,
+      projectedRemainingAtReset: Math.round(fc.projectedRemainingAt(p.reset_at) * 10) / 10,
+    };
+  }
   for (const p of periods) p.samples.sort((a, b) => a[0] - b[0]);
   return { generated_at: new Date().toISOString(), periods };
 }

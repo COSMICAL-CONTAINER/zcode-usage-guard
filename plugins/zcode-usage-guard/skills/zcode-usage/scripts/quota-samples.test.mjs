@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   readSamples, recordSample, periodsOf, dayConsumption,
+  forecastWindow, forecastSummaryFromSamples,
 } from './zcode-usage.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'quota-samples-'));
@@ -147,3 +148,48 @@ test('dayConsumption:进行中周期不参与统计', () => {
   const days = dayConsumption(rows, 3, now);
   assert.ok(days.every((d) => d.n === 0));
 });
+
+
+// ---------- forecastWindow:燃尽预测(最近 45 分钟最小二乘;只说有依据的话) ----------
+const MIN = 60e3;
+{
+  const now = 1000 * MIN; // 伪"现在"
+  test('forecastWindow:稳定消耗能预测打满时刻', () => {
+    // 45 分钟内从 剩余80% 匀速降到 剩余50%:0.667%/min → 50% 还能撑 75 分钟
+    const pairs = [];
+    for (let i = 0; i <= 9; i++) pairs.push([now - (45 - i * 5) * MIN, 80 - i * (30 / 9)]);
+    const fc = forecastWindow(pairs, now);
+    assert.ok(fc, '应有预测');
+    assert.ok(fc.perMinPct > 0.6 && fc.perMinPct < 0.75, `斜率应≈0.667, got ${fc.perMinPct}`);
+    const etaMin = (fc.zeroAtMs - now) / MIN;
+    assert.ok(etaMin > 70 && etaMin < 80, `预计 75 分钟后打满, got ${etaMin.toFixed(1)}`);
+  });
+  test('forecastWindow:停滞(斜率≈0)不预测', () => {
+    const pairs = Array.from({length: 8}, (_, i) => [now - (40 - i * 5) * MIN, 70]);
+    assert.equal(forecastWindow(pairs, now), null);
+  });
+  test('forecastWindow:最近无采样(闲置)不预测', () => {
+    const pairs = [[now - 200 * MIN, 90], [now - 180 * MIN, 60]]; // 3小时前的旧消耗
+    assert.equal(forecastWindow(pairs, now), null);
+  });
+  test('forecastWindow:采样跨度太短不预测', () => {
+    const pairs = [[now - 3 * MIN, 80], [now - 1 * MIN, 78]];
+    assert.equal(forecastWindow(pairs, now), null);
+  });
+  test('forecastWindow:剩余回升(负消耗)不预测', () => {
+    const pairs = [[now - 40 * MIN, 30], [now - 20 * MIN, 50], [now - 1 * MIN, 70]];
+    assert.equal(forecastWindow(pairs, now), null);
+  });
+  test('forecastSummaryFromSamples:打满在重置前给出 zeroAtMs', () => {
+    const resetAt = now + 30 * MIN;
+    // 36 分钟用掉 48%(剩余 80→32,~1.33%/min):末次采样(now-6min)剩 32% → 约 24 分钟后打满
+    // = now+18min,早于 30 分钟后的重置 → 会打满
+    const samples = Array.from({length: 7}, (_, i) => ({
+      at: now - (42 - i * 6) * MIN, resetAt, usedPct: 20 + i * 8, level: 'PRO', host: 'h',
+    }));
+    const s = forecastSummaryFromSamples(samples, now);
+    assert.ok(s, '应有摘要');
+    assert.ok(s.zeroAtMs < resetAt && s.zeroAtMs > now, `zeroAt 应在 (now, resetAt) 内`);
+    assert.equal(s.projectedRemainingAtReset, 0);
+  });
+}

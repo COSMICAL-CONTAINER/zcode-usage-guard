@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# GLM Coding Plan 桌面悬浮窗(Windows PowerShell 5.1+,零依赖)
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# GLM Coding Plan 桌面悬浮窗(Windows PowerShell 5.1+,零依赖)
 # UI 逐项照抄 macOS ZCodeUsageHUD 规格:372 宽 / 18 内边距 / 16 圆角 / 6px 胶囊进度条 / macOS 标签色阶梯
 # 配色与 ZCode 外观主题保持一致(探测 ZCode 窗口实际配色,深浅同步);ZCODE_WIDGET_THEME=light|dark 可强制
 # 高峰期提醒横幅(周一至周五 14:00–18:00 常驻);调试:ZCODE_WIDGET_PEAK=on 强制显示,ZCODE_WIDGET_PEAK_SHIFT=<小时数> 平移模拟时钟
@@ -896,6 +896,12 @@ function Invoke-RefreshImpl {
   $q = $d.quota
   # 记录各额度池对应的行;套餐没有的池(如 V1 Pro 无周限额)把对应行收起,避免留空白行
   $rowByPool = @{}
+  # 燃尽预测(zcode-usage.mjs 基于采样计算):窗口内会打满才提示,打不满不打扰
+  $fcTxt = ''
+  $fc = $d.quotaForecast
+  if ($fc -and $fc.zeroAtMs -lt $fc.resetAt) {
+    $fcTxt = ' · ⚡ 预计 ' + [DateTimeOffset]::FromUnixTimeMilliseconds([long]$fc.zeroAtMs).LocalDateTime.ToString('HH:mm') + ' 打满'
+  }
   foreach ($l in $q.limits) {
     $p = [double]$l.percentage
     if ($l.type -eq 'TIME_LIMIT') {
@@ -910,11 +916,11 @@ function Invoke-RefreshImpl {
     } elseif ($l.unit -eq 3) {
       $rowByPool['prompt5h'] = $rows[0]
       Set-Row $rows[0] '🕐  5 小时 Prompt 池' ('剩余 {0:F1}%' -f (100 - $p)) $p `
-        ('↻ {0} 重置 · {1}' -f (Format-Clock $l.nextResetTime), (Format-Reset $l.nextResetTime))
+        ('↻ {0} 重置 · {1}{2}' -f (Format-Clock $l.nextResetTime), (Format-Reset $l.nextResetTime), $fcTxt)
     } elseif ($l.unit -eq 6) {
       $rowByPool['weekly'] = $rows[1]
       Set-Row $rows[1] '📅  每周额度' ('剩余 {0:F1}%' -f (100 - $p)) $p `
-        ('↻ {0} 重置 · {1}' -f (Format-Clock $l.nextResetTime), (Format-Reset $l.nextResetTime))
+        ('↻ {0} 重置 · {1}{2}' -f (Format-Clock $l.nextResetTime), (Format-Reset $l.nextResetTime), $fcTxt)
     }
   }
   for ($i = 0; $i -lt 3; $i++) {

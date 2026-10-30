@@ -408,6 +408,9 @@ const padEndW = (s, width) => s + ' '.repeat(Math.max(0, width - dw(s)));
 // ---------- 展示辅助 ----------
 const UNIT_NAME = { 3: '小时', 5: '个月', 6: '周' }; // 接口实测:unit 3/5/6 对应时/月/周
 const periodText = (u, n) => (UNIT_NAME[u] ? `${n}${UNIT_NAME[u]}` : `${n}×unit${u}`);
+const fmtTime = (ts) => ts > 0
+  ? new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  : '—';
 const fmtTs = (ts) => ts > 0
   ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
   : '—';
@@ -491,6 +494,60 @@ export function recordSample(quota, file, nowMs, host) {
     host: hostKey,
   }) + '\n');
   return { recorded: true };
+}
+
+/** 燃尽预测:对进行中的五小时窗口,取最近 windowMs(默认45分钟)采样做最小二乘,
+ *  斜率显著为负(≥0.05%/分钟)才外推。pairs:[[atMs, 剩余%]](乱序可);返回 null =
+ *  最近无消耗或数据不足——预测只说有依据的话,不硬凑。
+ *  zeroAtMs 预计打满时刻;projectedRemainingAt(tMs) 窗口内任意时刻的预计剩余(截0)。 */
+export function forecastWindow(pairs, nowMs = Date.now(), windowMs = 45 * 60e3) {
+  const rows = pairs
+    .filter(([t, v]) => Number.isFinite(t) && Number.isFinite(v) && t <= nowMs && v >= 0 && v <= 100)
+    .sort((a, b) => a[0] - b[0]);
+  const recent = rows.filter(([t]) => t >= nowMs - windowMs);
+  if (recent.length < 2) return null;
+  const t0 = recent[0][0], t1 = recent[recent.length - 1][0];
+  if (t1 - t0 < 5 * 60e3) return null;
+  const x = recent.map(([t]) => (t - t0) / 60000);
+  const y = recent.map(([, v]) => v);
+  const n = x.length;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let i = 0; i < n; i++) { sx += x[i]; sy += y[i]; sxx += x[i] * x[i]; sxy += x[i] * y[i]; }
+  const denom = n * sxx - sx * sx;
+  if (Math.abs(denom) < 1e-9) return null;
+  const slope = (n * sxy - sx * sy) / denom;            // 剩余%/分钟(消耗时为负)
+  if (slope > -0.05) return null;                        // 消耗太慢视作停滞,不预测
+  const lastT = t1, lastV = y[n - 1];
+  const perMin = -slope;                                 // 正数 = 消耗速度
+  const projectedRemainingAt = (tMs) =>
+    Math.max(0, Math.min(100, lastV - perMin * (tMs - lastT) / 60000));
+  return {
+    perMinPct: Math.round(perMin * 1000) / 1000,
+    basedOnCount: n,
+    spanMinutes: Math.round((t1 - t0) / 60000),
+    lastAt: lastT,
+    lastRemaining: Math.round(lastV * 10) / 10,
+    zeroAtMs: lastV / perMin * 60000 + lastT,
+    projectedRemainingAt,
+  };
+}
+
+/** 组装给三端消费的预测摘要(基于采样文件里进行中的五小时窗口);无预测返回 null */
+export function forecastSummaryFromSamples(samples, nowMs = Date.now()) {
+  const active = samples.filter((s) => Number(s.resetAt) > nowMs);
+  if (!active.length) return null;
+  const resetAt = Number(active[active.length - 1].resetAt);
+  const pairs = active
+    .filter((s) => Number(s.resetAt) === resetAt)
+    .map((s) => [Number(s.at), 100 - Number(s.usedPct)]);
+  const fc = forecastWindow(pairs, nowMs);
+  if (!fc) return null;
+  return {
+    perMinPct: fc.perMinPct, basedOnCount: fc.basedOnCount, spanMinutes: fc.spanMinutes,
+    lastRemaining: fc.lastRemaining, resetAt,
+    zeroAtMs: fc.zeroAtMs,
+    projectedRemainingAtReset: Math.round(fc.projectedRemainingAt(resetAt) * 10) / 10,
+  };
 }
 
 /** 采样 → 周期分组(按 host+resetAt,不同服务商的流不合并):首见/末次/峰值水位、
@@ -690,6 +747,17 @@ function runQuotaHistoryView(samplesFile, count) {
       console.log(` ${d.dayLabel}  ${c(rateStyle(d.meanPct), '▰'.repeat(filled) + '▱'.repeat(Math.max(0, 20 - filled)))}  ${c(rateStyle(d.meanPct), d.meanPct.toFixed(0) + '%')}  ${dim(`(${d.n} 窗口)`)}`);
     }
     console.log(` 7 天合计(按窗口加权): ${c(rateStyle(totalSum / totalN), (totalSum / totalN).toFixed(0) + '%')}  ${dim(`(共 ${totalN} 窗口)`)}`);
+  }
+  const fc = forecastSummaryFromSamples(samples, nowMs);
+  if (fc) {
+    console.log('');
+    if (fc.zeroAtMs < fc.resetAt) {
+      console.log(bold('⚡ 燃尽预测') + dim(`(近 ${fc.spanMinutes} 分钟消耗 ${fc.perMinPct.toFixed(1)}%/分钟)`) + ' '
+        + c('31', `预计 ${fmtTime(fc.zeroAtMs)} 打满`) + dim(`(重置 ${fmtTime(fc.resetAt)} 之前)`));
+    } else {
+      console.log(bold('⚡ 燃尽预测') + dim(`(近 ${fc.spanMinutes} 分钟消耗 ${fc.perMinPct.toFixed(1)}%/分钟)`) + ' '
+        + c('32', `窗口结束预计还剩 ${fc.projectedRemainingAtReset.toFixed(0)}%`));
+    }
   }
   console.log('');
   console.log(dim(`    采样文件 ${file} · 导出 CSV 加 --export-quota-csv <路径>`));
@@ -1008,16 +1076,29 @@ async function main() {
           medianTtftMs: ls.medianTtftMs ?? null,
         }
       : null;
+    // 燃尽预测:基于采样文件里进行中的五小时窗口(采样关闭/数据不足时为 null,悬浮窗不显示)
+    let quotaForecast = null;
+    if (samplesEnabled()) {
+      try { quotaForecast = forecastSummaryFromSamples(readSamples(samplesArg || DEFAULT_SAMPLES_FILE()), nowMs); }
+      catch { /* 预测失败不影响查询 */ }
+    }
     console.log(JSON.stringify({
       quota, modelUsage, toolUsage, usageSplit,
       localUsage: localUsageToday(nowMs), // 本机视角:解析本地模型 I/O 日志(北京时间当日)
       localSpeed, // 本机生成速度/缓存/首字:自行计算,悬浮窗的 ⚡ 行数据源
+      quotaForecast,
     }, null, 2));
     return;
   }
 
   const host = new URL(origin).host;
   const level = (quota.level || 'unknown').toUpperCase();
+  // 卡片用的燃尽预测(与 --json 同源;采样关/数据不足为 null 不显示)
+  let cardForecast = null;
+  if (samplesEnabled()) {
+    try { cardForecast = forecastSummaryFromSamples(readSamples(samplesArg || DEFAULT_SAMPLES_FILE()), nowMs); }
+    catch { /* 预测失败不影响卡片 */ }
+  }
   console.log(rule('━'));
   console.log(bold(' ⚡ GLM Coding Plan 用量'));
   console.log(dim(`    ${level} 套餐 · ${host} · ${now.toLocaleString('zh-CN')}`));
@@ -1034,6 +1115,13 @@ async function main() {
     }
     if (l.nextResetTime > 0) {
       console.log(dim(`      ↻ ${fmtTs(l.nextResetTime)} 重置(${countdown(l.nextResetTime - now.getTime())})`));
+    }
+    if (l.type !== 'TIME_LIMIT' && periodText(l.unit, l.number).includes('小时') && cardForecast) {
+      if (cardForecast.zeroAtMs < cardForecast.resetAt) {
+        console.log(c('31', `      ⚡ 按近期速度预计 ${fmtTime(cardForecast.zeroAtMs)} 打满`) + dim(`(重置前,近 ${cardForecast.spanMinutes} 分钟 ${cardForecast.perMinPct.toFixed(1)}%/分)`));
+      } else {
+        console.log(c('32', `      ⚡ 按近期速度,窗口结束预计还剩 ${cardForecast.projectedRemainingAtReset.toFixed(0)}%`) + dim(`(近 ${cardForecast.spanMinutes} 分钟 ${cardForecast.perMinPct.toFixed(1)}%/分)`));
+      }
     }
     const details = l.usageDetails || [];
     if (details.length) {
