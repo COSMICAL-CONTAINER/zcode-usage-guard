@@ -911,6 +911,17 @@ async function main() {
   ensureCred();
   const quota = await get('/api/monitor/usage/quota/limit');
 
+  // MCP 次数池(TIME_LIMIT)有精确计数:已用比例自算覆盖服务端 percentage——它是滞后缓存
+  // (实测次数已到 140 而 percentage 仍停在 9)。快照 usedPct、SessionStart 注入行、CLI 卡片
+  // 进度条全部吃这里的归一化值;5 小时池/每周没有次数字段,只能信 percentage(与数字自洽)
+  for (const l of quota?.limits || []) {
+    if (l.type === 'TIME_LIMIT' && Number(l.usage) > 0
+      && l.currentValue !== null && l.currentValue !== undefined) {
+      const p = (Number(l.currentValue) / Number(l.usage)) * 100;
+      if (Number.isFinite(p) && p >= 0 && p <= 100) l.percentage = Math.round(p * 10) / 10;
+    }
+  }
+
   // 状态快照:--hook 模式固定写默认路径;常规模式带 --state <path> 时写指定路径(自动化/调试用)
   // 注意:快照续期不受「会话启动注入」开关影响——quota-guard 依赖新鲜快照,该开关只门控下方输出
   const stateArg = flagValue('--state');
@@ -1017,7 +1028,7 @@ async function main() {
     console.log('');
     console.log(` ${iconFor(l)}  ${bold(padEndW(labelFor(l), LABEL_W))}${bar(p)}`);
     if (l.type === 'TIME_LIMIT') {
-      console.log(dim(`      已用 ${fmtNum(l.currentValue)} / ${fmtNum(l.usage)} 次 · 剩余 ${fmtNum(l.remaining)}`));
+      console.log(dim(`      剩余 ${fmtNum(l.remaining)} / ${fmtNum(l.usage)} 次 · 已用 ${fmtNum(l.currentValue)}`));
     } else {
       console.log(dim(`      剩余 ${(100 - p).toFixed(1)}%`));
     }
