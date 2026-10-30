@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿# GLM Coding Plan 桌面悬浮窗(Windows PowerShell 5.1+,零依赖)
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# GLM Coding Plan 桌面悬浮窗(Windows PowerShell 5.1+,零依赖)
 # UI 逐项照抄 macOS ZCodeUsageHUD 规格:372 宽 / 18 内边距 / 16 圆角 / 6px 胶囊进度条 / macOS 标签色阶梯
 # 配色与 ZCode 外观主题保持一致(探测 ZCode 窗口实际配色,深浅同步);ZCODE_WIDGET_THEME=light|dark 可强制
 # 高峰期提醒横幅(周一至周五 14:00–18:00 常驻);调试:ZCODE_WIDGET_PEAK=on 强制显示,ZCODE_WIDGET_PEAK_SHIFT=<小时数> 平移模拟时钟
@@ -859,6 +859,13 @@ function Invoke-RefreshImpl {
   }
   $d = $null
   if ($raw) { try { $d = $raw | ConvertFrom-Json } catch { $d = $null } }
+  $ok = [bool]($d -and $d.quota)
+  if (-not $ok -and $script:lastGoodData -and $script:lastGoodData.quota) {
+    # 断网兜底:本次查询失败但内存里有上次成功数据——继续按旧数据渲染,
+    # 额度行/当日汇总/速度行全部保留,「更新于」保持上次成功时刻,不冒充新数据
+    $d = $script:lastGoodData
+    Write-WidgetLog ('离线兜底: 本次查询失败,继续显示上次成功数据(更新于 ' + $script:lastGoodAt.ToString('MM-dd HH:mm:ss') + ')')
+  }
   if (-not $d -or -not $d.quota) {
     # renderError:⚠️ 查询失败 + 消息放 sub,footer 提示重试,右侧露出「🔑 配置 API Key」
     $Meta.Text = '读取失败'
@@ -878,6 +885,7 @@ function Invoke-RefreshImpl {
     $PeakRow.Visibility = 'Collapsed'; $OffPeakRow.Visibility = 'Collapsed'
     return
   }
+  if ($ok) { $script:lastGoodData = $d; $script:lastGoodAt = Get-Date }
   foreach ($r in $rows) { $r.Panel.Visibility = 'Visible' }
   $q = $d.quota
   # 记录各额度池对应的行;套餐没有的池(如 V1 Pro 无周限额)把对应行收起,避免留空白行
@@ -963,7 +971,12 @@ function Invoke-RefreshImpl {
   $script:lastLocal = $d.localUsage
   $script:lastTotalTokens = [double]$t.totalTokensUsage
   $script:lastTotalCalls = [double]$t.totalModelCallCount
-  $Meta.Text = ('{0} 套餐 · 更新于 {1}' -f $q.level.ToUpper(), (Get-Date -Format 'HH:mm:ss'))
+  if ($ok) {
+    $Meta.Text = ('{0} 套餐 · 更新于 {1}' -f $q.level.ToUpper(), (Get-Date -Format 'HH:mm:ss'))
+  } else {
+    $ts = if ($script:lastGoodAt.Date -eq (Get-Date).Date) { $script:lastGoodAt.ToString('HH:mm:ss') } else { $script:lastGoodAt.ToString('MM-dd HH:mm') }
+    $Meta.Text = ('⚠ 离线 · {0} 套餐 · 更新于 {1}' -f $q.level.ToUpper(), $ts)
+  }
 }
 
 # 带兜底的刷新入口:任何异常只记日志并显示"刷新异常",绝不带崩进程/窗口(窗口在 Show 之前崩溃的最常见死法)
