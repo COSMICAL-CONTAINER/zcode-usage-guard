@@ -14,6 +14,7 @@ Repo: https://github.com/COSMICAL-CONTAINER/zcode-usage-guard — upstream featu
 | 📅 Weekly quota | Used %, reset time (when the plan includes one) |
 | 🔧 MCP tool calls (monthly) | remaining / total (used in the sub-line), per-tool details |
 | 📊 Today's usage | Calls, tokens (formattable), peak/off-peak split, per-model breakdown |
+| 💹 Local vs account | Hover the footer 💹: all local calls today (ZCode's sqlite usage DB, workflow subagents included, split by provider/account) vs the official billing figure (all devices on that key, cache writes included) |
 | ⚡ Speed line | Pure-decode tok/s · cache-hit rate · TTFT (Windows widget; macOS HUD not yet) |
 | ⚡ Peak-hours banner | Weekdays 14:00–18:00: countdown + progress, auto-dismisses |
 
@@ -62,6 +63,11 @@ node ~/.zcode/scripts/quota-curve.mjs            # curve page (or the 📈 butto
 In a ZCode conversation: `/zcode-usage-guard:usage`, or just ask "how much quota is left".
 
 The Windows widget launches with ZCode (SessionStart hook), follows the ZCode theme, hotkey show/hide (default Ctrl+G), auto-recall on new sessions (toggleable), single instance, remembers position. ✕ hides; right-click → 退出 to quit. Uninstalling the plugin stops everything — no autostart leftovers.
+
+## Performance & storage
+
+- A full query takes ~2 s (~1.2 s of it is the official API network call; local stats cost ~40 ms). The widget refreshes in the background on a timer.
+- The plugin's own data stays under 5 MB **per year**: sampling history ~11 KB/day (only while the machine is on), per-cycle ledger, auto-rotated log (512 KB cap). It reads ZCode's own sqlite/rollout stores and never copies or creates large files.
 
 ## Privacy
 
