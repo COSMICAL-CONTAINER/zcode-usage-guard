@@ -48,7 +48,7 @@ flowchart LR
 - **Local directory**: download the repo, Plugins → **+** → Local directory, pick the repo root (contains `marketplace.json`).
 - **Standalone scripts**: `node zcode-usage.mjs --install` (query script, `/usage` command, widget, curve page); `--uninstall` to remove (sampling history is kept as user data).
 
-Requires ZCode desktop with a GLM Coding Plan key/account configured, Node.js ≥ 18 (≥ 22.5 for TTFT/pure-decode speed).
+Requires ZCode desktop with a GLM Coding Plan **API key** configured in ZCode (auto-detected from ZCode's own config — zero setup). **Account-login users**: ZCode ≥3.17 stores login credentials encrypted, which the plugin cannot read — generate an API key for that account on the Zhipu open platform and paste it once via the widget's ⚙ → 🔑 manual panel. Node.js ≥ 18 (≥ 22.5 for TTFT/pure-decode speed).
 
 ## Usage
 
@@ -65,7 +65,7 @@ The Windows widget launches with ZCode (SessionStart hook), follows the ZCode th
 
 ## Privacy
 
-No keys are bundled or uploaded. Credentials are read from your local ZCode config (or a manual fallback you enter once); network requests go only to official Zhipu/Z.ai endpoints (`open.bigmodel.cn` / `api.z.ai`). Speed/cache/TTFT stats read local files only — zero network.
+No keys are bundled or uploaded. Credentials are read from your local ZCode config (API-key providers; ZCode ≥3.17 account-login tokens are encrypted and out of reach — use the 🔑 manual fallback); network requests go only to official Zhipu/Z.ai endpoints (`open.bigmodel.cn` / `api.z.ai`). Speed/cache/TTFT stats read local files only — zero network.
 
 ## Inherited from upstream
 

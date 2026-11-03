@@ -35,7 +35,7 @@ macOS 为社区移植的原生 HUD(浅色;下图为上游作者的旧版截图,�
 ## 前提条件
 
 - [ZCode](https://zcode.z.ai) 桌面版
-- 已在 ZCode 中配置智谱 Coding Plan 的 **API Key** 或**账号**登录(设置 → 模型,插件自动读取,无需手动填;没配也不影响安装,查询失败时悬浮窗有一键兜底,见[上游功能速览](#上游功能速览))
+- 已在 ZCode 中配置智谱 Coding Plan 的 **API Key**(设置 → 模型;插件自动读取,零配置)。**账号登录用户注意**:ZCode ≥3.17 的登录凭据是加密存储,插件读不到——请到智谱开放平台给该账号生成一个 API Key,在悬浮窗 ⚙ → 手动凭据 → 🔑 里填一次即可;没配也不影响安装,查询失败时悬浮窗有一键兜底,见[上游功能速览](#上游功能速览)
 - Node.js ≥ 18(终端输入 `node -v` 检查);悬浮窗速度行的「首字」与纯解码口径需 Node ≥ 22.5,不满足时自动降级(速度改用含预填充口径、首字隐藏),其余功能不受影响
 
 ## 安装
@@ -224,7 +224,7 @@ node ~/.zcode/scripts/quota-curve.mjs     # 打开曲线窗口(Edge/Chrome 应�
 
 - **三个查询入口**:对话内命令(见上)、终端 CLI(见上)、桌面悬浮窗(见上);三端数据口径一致
 - **API Key 兜底**:自动探测失败时,Windows/macOS 悬浮窗失败页点 **🔑 配置 API Key**,面板内选服务商(智谱开放平台/智谱国际)+ 粘贴 Key,存 `~/.zcode/zcode-usage-manual.json`(三端共用;Key 不回显、走环境变量传递不出现在命令行);「清除已存 Key」可恢复自动探测
-- **自动探测顺序**:运行参数 `--key/--base` → 环境变量 `ANTHROPIC_AUTH_TOKEN`(+`ANTHROPIC_BASE_URL`;只设 `ZAI_API_KEY` 时默认国际站)→ 手动配置文件 → ZCode 配置 `~/.zcode/v2/config.json`(扫描全部已启用 provider,只认 `open.bigmodel.cn` / `api.z.ai` 两个官方域名,主动跳过没有监控接口的启动版域名 `zcode.z.ai`)
+- **自动探测顺序**:运行参数 `--key/--base` → 环境变量 `ANTHROPIC_AUTH_TOKEN`(+`ANTHROPIC_BASE_URL`;只设 `ZAI_API_KEY` 时默认国际站)→ 手动配置文件 → ZCode 配置 `~/.zcode/v2/config.json`(扫描全部已启用 provider,只认 `open.bigmodel.cn` / `api.z.ai` 两个官方域名,主动跳过没有监控接口的启动版域名 `zcode.z.ai`)。**边界**:ZCode ≥3.17 的「账号登录」provider(`account:*`)凭据加密存于 `credentials.json`,不在扫描范围——这类用户请在 🔑 手动配置里填该账号的 API Key
 - **悬浮窗体验**:深浅主题跟随 ZCode、位置记忆、单实例唤回、热键收起(详见[使用](#使用))
 
 > 上述功能的完整文档见[上游 README](https://github.com/ssbh163/ZCode-Usage)。
@@ -239,6 +239,10 @@ node ~/.zcode/scripts/quota-curve.mjs     # 打开曲线窗口(Edge/Chrome 应�
 
 **Q:提示"未找到 Coding Plan API Key"?**
 最省事:点悬浮窗失败页的 **🔑 配置 API Key** 手动填写;或先在 ZCode 设置里配好智谱 Coding Plan 的 API Key;或设置环境变量 `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_BASE_URL`,或运行时传 `--key <apiKey> --base <baseURL>`。
+如果你在 ZCode 里是用**账号登录**(而非 API Key)——新版 ZCode 的登录凭据加密存储,插件读不到——请到智谱开放平台给该账号生成 API Key 后按上面方式手动填写一次即可。
+
+**Q:换了账号/套餐,为什么悬浮窗还是旧号的数字?**
+插件一次只查探测到的那个 key,且采样/曲线没有账号身份字段(多账号支持暂未做)。换号后下一轮刷新会自动跟随新号;想立刻切换或两个号都看,用 🔑 手动配置填对应号的 Key 最直接。
 
 **Q:HTTP 401?**
 API Key 无效或过期,去智谱开放平台重新获取。
