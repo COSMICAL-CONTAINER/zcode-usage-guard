@@ -281,12 +281,15 @@ function render() {
         data: fdata,
         lineStyle: {width: 2, type: [7, 5], color: rgba(color, 0.95)},
         showSymbol: false,
-        markPoint: {silent: true, animation: false,
-          symbol: "circle", symbolSize: 8,
-          itemStyle: {color: "#0d1220", borderColor: color, borderWidth: 2},
-          label: {show: true, position: "left", distance: 8, color, fontSize: 10,
-            formatter: () => (fc.burnsOutBeforeReset ? `⚡ ${hmLocal(endT)} 打满` : `⚡ 预计剩 ${fc.projectedRemainingAtReset.toFixed(0)}%`)},
-          data: [{coord: [endT, endV]}]},
+      });
+      // 末端圆点+标注拆成独立静默 scatter:markPoint 条目会被 axis tooltip 列成
+      // 与线同名的额外一行(“⚡ 预计消耗”×2),scatter 关 tooltip 即干净
+      series.push({
+        name: "", id: "fp:" + period.reset_at, type: "scatter", z: 7, silent: true,
+        data: [[endT, endV]], symbolSize: 8, tooltip: {show: false},
+        itemStyle: {color: "#0d1220", borderColor: color, borderWidth: 2},
+        label: {show: true, position: "left", distance: 8, color, fontSize: 10,
+          formatter: () => (fc.burnsOutBeforeReset ? `⚡ ${hmLocal(endT)} 打满` : `⚡ 预计剩 ${fc.projectedRemainingAtReset.toFixed(0)}%`)},
       });
       forecastBadge = fc.burnsOutBeforeReset
         ? ` · ⚡ 按近 ${fc.spanMinutes} 分钟速度,预计 ${hmLocal(endT)} 打满`
