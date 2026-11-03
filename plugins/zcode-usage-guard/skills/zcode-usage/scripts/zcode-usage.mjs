@@ -850,10 +850,12 @@ async function recordHistory(quota, file) {
 export /** 本机当日用量(sqlite 口径,优先):ZCode 自己的用量库逐请求记账,含 workflow 子代理——
  *  rollout JSONL 只覆盖主会话(实测漏 96%:workflow_child 占六成时 JSONL 仅剩 4%),
  *  且 model_usage 带 provider_id,本机视角天然能分号;node:sqlite 不可用(<22.5)时返回 null 走 JSONL 兜底 */
-function localUsageTodaySqlite(nowMs) {
+function localUsageTodaySqlite(nowMs, dbPath) {
   try {
     const { DatabaseSync } = nodeRequire('node:sqlite');
-    const db = new DatabaseSync(path.join(os.homedir(), '.zcode', 'cli', 'db', 'db.sqlite'), { readOnly: true });
+    const file = dbPath || path.join(os.homedir(), '.zcode', 'cli', 'db', 'db.sqlite');
+    if (dbPath !== undefined && !fs.existsSync(file)) return null; // 测试重定向:指向不存在的库时回退 JSONL
+    const db = new DatabaseSync(file, { readOnly: true });
     try {
       const dayStart = bjDayStartMs(nowMs);
       const rows = db.prepare(
@@ -882,8 +884,8 @@ function localUsageTodaySqlite(nowMs) {
 }
 
 /** 本机当日用量:sqlite(全量含子代理,可分 provider)优先,rollout JSONL 兜底 */
-export function localUsageToday(nowMs, rolloutDir) {
-  const viaSqlite = localUsageTodaySqlite(nowMs);
+export function localUsageToday(nowMs, rolloutDir, dbPath) {
+  const viaSqlite = localUsageTodaySqlite(nowMs, dbPath);
   if (viaSqlite) return viaSqlite;
   const out = localUsageTodayFromRollout(nowMs, rolloutDir);
   out.source = 'rollout';

@@ -113,7 +113,7 @@ test('localUsageToday:按北京时间当日过滤并聚合(不含昨日/无用�
     mk(iso(dayStart + 11 * 3600_000)).replace('"totalTokens"', '"otherTokens"'), // 无用量
   ];
   fs.writeFileSync(path.join(dir, 'model-io-sess_test.jsonl'), lines.join('\n'));
-  const u = localUsageToday(now, dir);
+  const u = localUsageToday(now, dir, path.join(dir, 'no-such-db.sqlite')); // 指向不存在的库:回退 JSONL 夹具
   assert.equal(u.calls, 1);
   assert.equal(u.totalTokens, 1000);
   assert.equal(u.inputTokens, 900);
@@ -124,3 +124,29 @@ test('localUsageToday:按北京时间当日过滤并聚合(不含昨日/无用�
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+
+// localUsageToday(sqlite 口径):临时库建 model_usage 表,验证按日聚合与 byProvider 分号
+test('localUsageToday:sqlite 库优先,含 byProvider 分号', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-usage-sqlite-'));
+  const dbFile = path.join(dir, 'usage.sqlite');
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(dbFile);
+  db.exec('CREATE TABLE model_usage (started_at INTEGER, provider_id TEXT, model_id TEXT, input_tokens INTEGER, output_tokens INTEGER)');
+  const now = Date.now();
+  const dayStart = bjDayStartMs(now);
+  const ins = db.prepare('INSERT INTO model_usage VALUES (?, ?, ?, ?, ?)');
+  ins.run(dayStart + 1000, 'bigmodel-api', 'GLM-5.3', 900, 100);
+  ins.run(dayStart + 2000, 'account:bigmodel-individual-coding-plan', 'GLM-5.3', 500, 50);
+  ins.run(dayStart - 3600_000, 'bigmodel-api', 'GLM-5.3', 999, 999); // 昨天:不入账
+  db.close();
+  const u = localUsageToday(now, dir, dbFile);
+  assert.equal(u.source, 'sqlite');
+  assert.equal(u.calls, 2);
+  assert.equal(u.totalTokens, 1550);
+  assert.equal(u.byProvider['bigmodel-api'].tokens, 1000);
+  assert.equal(u.byProvider['account:bigmodel-individual-coding-plan'].tokens, 550);
+});
