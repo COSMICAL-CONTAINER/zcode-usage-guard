@@ -22,6 +22,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+const nodeRequire = createRequire(import.meta.url);
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -845,10 +847,53 @@ async function recordHistory(quota, file) {
 // 数据源:~/.zcode/cli/rollout/model-io-sess_*.jsonl,每行一次模型请求,含
 // completedAt / model.modelId / response.usage.{inputTokens,outputTokens,totalTokens}。
 // 逐行正则提取(不 JSON.parse 整行——单行可达数百 KB),只统计北京时间当日。
+export /** 本机当日用量(sqlite 口径,优先):ZCode 自己的用量库逐请求记账,含 workflow 子代理——
+ *  rollout JSONL 只覆盖主会话(实测漏 96%:workflow_child 占六成时 JSONL 仅剩 4%),
+ *  且 model_usage 带 provider_id,本机视角天然能分号;node:sqlite 不可用(<22.5)时返回 null 走 JSONL 兜底 */
+function localUsageTodaySqlite(nowMs) {
+  try {
+    const { DatabaseSync } = nodeRequire('node:sqlite');
+    const db = new DatabaseSync(path.join(os.homedir(), '.zcode', 'cli', 'db', 'db.sqlite'), { readOnly: true });
+    try {
+      const dayStart = bjDayStartMs(nowMs);
+      const rows = db.prepare(
+        `SELECT model_id, provider_id, COUNT(*) n,
+                SUM(COALESCE(input_tokens,0)) inp, SUM(COALESCE(output_tokens,0)) outp,
+                SUM(COALESCE(input_tokens,0)+COALESCE(output_tokens,0)) tot
+         FROM model_usage WHERE started_at >= ?
+         GROUP BY model_id, provider_id`
+      ).all(dayStart);
+      if (!rows.length) return null;
+      const out = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, byModel: {}, byProvider: {}, source: 'sqlite' };
+      const byProvider = {};
+      for (const r of rows) {
+        const n = Number(r.n), inp = Number(r.inp), outp = Number(r.outp), tot = Number(r.tot);
+        out.calls += n; out.inputTokens += inp; out.outputTokens += outp; out.totalTokens += tot;
+        const bm = out.byModel[r.model_id] || (out.byModel[r.model_id] = { calls: 0, tokens: 0 });
+        bm.calls += n; bm.tokens += tot;
+        const pv = String(r.provider_id || 'unknown');
+        const bp = byProvider[pv] || (byProvider[pv] = { calls: 0, tokens: 0 });
+        bp.calls += n; bp.tokens += tot;
+      }
+      out.byProvider = byProvider;
+      return out;
+    } finally { db.close(); }
+  } catch { return null; }
+}
+
+/** 本机当日用量:sqlite(全量含子代理,可分 provider)优先,rollout JSONL 兜底 */
 export function localUsageToday(nowMs, rolloutDir) {
+  const viaSqlite = localUsageTodaySqlite(nowMs);
+  if (viaSqlite) return viaSqlite;
+  const out = localUsageTodayFromRollout(nowMs, rolloutDir);
+  out.source = 'rollout';
+  return out;
+}
+
+function localUsageTodayFromRollout(nowMs, rolloutDir) {
   const rdir = rolloutDir || path.join(os.homedir(), '.zcode', 'cli', 'rollout');
   const dayStart = bjDayStartMs(nowMs);
-  const out = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, byModel: {} };
+  const out = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, byModel: {}, byProvider: {} };
   let files = [];
   try { files = fs.readdirSync(rdir).filter((f) => /^model-io-sess_.*\.jsonl$/.test(f)); } catch { return out; }
   for (const f of files) {

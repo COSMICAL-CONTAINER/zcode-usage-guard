@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# GLM Coding Plan 桌面悬浮窗(Windows PowerShell 5.1+,零依赖)
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# GLM Coding Plan 桌面悬浮窗(Windows PowerShell 5.1+,零依赖)
 # UI 逐项照抄 macOS ZCodeUsageHUD 规格:372 宽 / 18 内边距 / 16 圆角 / 6px 胶囊进度条 / macOS 标签色阶梯
 # 配色与 ZCode 外观主题保持一致(探测 ZCode 窗口实际配色,深浅同步);ZCODE_WIDGET_THEME=light|dark 可强制
 # 高峰期提醒横幅(周一至周五 14:00–18:00 常驻);调试:ZCODE_WIDGET_PEAK=on 强制显示,ZCODE_WIDGET_PEAK_SHIFT=<小时数> 平移模拟时钟
@@ -414,11 +414,15 @@ $xamlText = @'
               <TextBlock Text="本机按模型" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" VerticalAlignment="Center"/>
               <TextBlock x:Name="LModels" Text="" FontSize="10.5" HorizontalAlignment="Right" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
             </Grid>
+            <Grid x:Name="LProvidersRow" Height="15" Margin="0,3,0,0">
+              <TextBlock Text="本机按账号" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" VerticalAlignment="Center"/>
+              <TextBlock x:Name="LProviders" Text="" FontSize="10.5" HorizontalAlignment="Right" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+            </Grid>
             <Grid Height="15" Margin="0,2,0,0">
               <TextBlock Text="账号(全部设备)" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" VerticalAlignment="Center"/>
               <TextBlock x:Name="LTotalVal" Text="" FontSize="10.5" HorizontalAlignment="Right" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
             </Grid>
-            <TextBlock Text="本机 = 本电脑当日实际调用(本地模型日志);账号 = 官方监控口径(含所有设备)" FontSize="9.5" Foreground="{DynamicResource QuaternaryBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+            <TextBlock Text="本机 = 本电脑当日全部调用(sqlite 用量库,含 workflow 子代理,按账号分列);账号 = 官方计费口径(该 key 名下所有设备,含缓存写入,故普遍大于本机)" FontSize="9.5" Foreground="{DynamicResource QuaternaryBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
           </StackPanel>
         </Border>
       </Popup>
@@ -469,6 +473,8 @@ $LCalls = & $el 'LCalls'
 $LIO = & $el 'LIO'
 $LModels = & $el 'LModels'
 $LModelsRow = & $el 'LModelsRow'
+$LProviders = & $el 'LProviders'
+$LProvidersRow = & $el 'LProvidersRow'
 $LTotalVal = & $el 'LTotalVal'
 $SetupPanel = & $el 'SetupPanel'
 $SetupBase = & $el 'SetupBase'
@@ -1345,12 +1351,19 @@ $win.Add_SourceInitialized({
         $LIO.Text = '{0} / {1} / {2}' -f (Format-Tokens ([double]$script:lastLocal.inputTokens)), (Format-Tokens ([double]$script:lastLocal.outputTokens)), (Format-Tokens $loc)
         $ms = @($script:lastLocal.byModel.PSObject.Properties | ForEach-Object { '{0} {1}' -f (Format-ModelName $_.Name), (Format-Tokens ([double]$_.Value.tokens)) })
         if ($ms.Count) { $LModels.Text = $ms -join ' · '; $LModelsRow.Visibility = 'Visible' } else { $LModelsRow.Visibility = 'Collapsed' }
+        $prows = @($script:lastLocal.byProvider.PSObject.Properties | ForEach-Object {
+          $n = [string]$_.Name
+          if ($n -like 'account:*') { $n = '账号:' + ($n -replace '^account:(bigmodel-|zai-)?', '') }
+          if ($n.Length -gt 20) { $n = $n.Substring(0, 20) + '…' }
+          '{0} {1}' -f $n, (Format-Tokens ([double]$_.Value.tokens))
+        })
+        if ($prows.Count) { $LProviders.Text = $prows -join ' · '; $LProvidersRow.Visibility = 'Visible' } else { $LProvidersRow.Visibility = 'Collapsed' }
         $LTotalVal.Text = '{0:N0} 次 · {1}' -f [double]$script:lastTotalCalls, (Format-Tokens $tot)
         $w = [Math]::Round(282 * [Math]::Min(100, [Math]::Max(0, $pct)) / 100)
         $LFill.Width = [Math]::Max($w, 6)
       } else {
-        $LPct.Text = ''; $LCalls.Text = ''; $LIO.Text = ''; $LModels.Text = ''; $LTotalVal.Text = ''
-        $LFill.Width = 0; $LModelsRow.Visibility = 'Collapsed'
+        $LPct.Text = ''; $LCalls.Text = ''; $LIO.Text = ''; $LModels.Text = ''; $LProviders.Text = ''; $LTotalVal.Text = ''
+        $LFill.Width = 0; $LModelsRow.Visibility = 'Collapsed'; $LProvidersRow.Visibility = 'Collapsed'
       }
     } catch { }
     $LocalPopup.IsOpen = $true
