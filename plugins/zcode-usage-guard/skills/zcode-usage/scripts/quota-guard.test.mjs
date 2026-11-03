@@ -39,8 +39,13 @@ function run(event, dir, opts = {}) {
     writeJson(path.join(dir, 'quota-guard-optin.json'),
       { sessions: { [opts.session || 'sess-test']: { at: Date.now() } } });
   }
+  // env 净化:ZCode 会话里跑测试时 CLAUDE_SESSION_ID/ZCODE_SESSION_ID 会指向真实会话,
+  // 守卫若从 env 取会话就会查不到测试注册表而静默——剥掉,保证 --session 是唯一来源
+  const env = { ...process.env };
+  delete env.CLAUDE_SESSION_ID;
+  delete env.ZCODE_SESSION_ID;
   const r = spawnSync(process.execPath, args,
-    { encoding: 'utf8', timeout: 15000, input: opts.input || '' });
+    { encoding: 'utf8', timeout: 15000, input: opts.input || '', env });
   assert.equal(r.status, 0, `exit 0, stderr: ${r.stderr}`);
   return r.stdout.trim();
 }
@@ -171,8 +176,12 @@ test('stdin 负载里的 session_id 也能匹配登记', (t) => {
   const dir = tmpDir(t);
   writeJson(path.join(dir, 'quota-guard-optin.json'), { sessions: { 'sess-stdin': { at: Date.now() } } });
   stateAt(dir, [pool('prompt5h', 96, Date.now() + 3600e3, '5小时池')]);
+  // 同 run():剥掉会话 env,让 stdin 负载成为唯一会话来源(测的就是这条兜底链)
+  const env = { ...process.env };
+  delete env.CLAUDE_SESSION_ID;
+  delete env.ZCODE_SESSION_ID;
   const r = spawnSync(process.execPath, [script, '--event', 'Stop', '--dir', dir],
-    { encoding: 'utf8', timeout: 15000, input: JSON.stringify({ session_id: 'sess-stdin' }) });
+    { encoding: 'utf8', timeout: 15000, input: JSON.stringify({ session_id: 'sess-stdin' }), env });
   assert.equal(r.status, 0, `exit 0, stderr: ${r.stderr}`);
   const parsed = JSON.parse(r.stdout.trim());
   assert.equal(parsed.decision, 'block');

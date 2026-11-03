@@ -40,8 +40,9 @@ const warnFile = argValue('--warn-file') || path.join(dir, 'quota-guard-warn.jso
 const settingsFile = argValue('--settings-file') || path.join(dir, 'quota-guard-settings.json');
 const optinFile = argValue('--optin-file') || path.join(dir, 'quota-guard-optin.json');
 
-// 会话 id:环境变量优先,--session 参数次之,stdin 负载兜底(见 readStdinSession)
-let sessionId = process.env.CLAUDE_SESSION_ID || argValue('--session') || '';
+// 会话 id:显式 --session 参数最优先(测试/自动化可确定指定,涓嶅彈环境污染),
+// 其后环境变量(ZCode hook 真实调用不传 --session,行为不变),stdin 负载兜底(见 readStdinSession)
+let sessionId = argValue('--session') || process.env.CLAUDE_SESSION_ID || '';
 
 const DEFAULT_THRESHOLD = 95;
 const DEFAULT_WARN_INTERVAL_MIN = 10;
