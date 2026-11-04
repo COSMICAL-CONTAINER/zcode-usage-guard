@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# GLM Coding Plan 桌面悬浮窗(Windows PowerShell 5.1+,零依赖)
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# GLM Coding Plan 桌面悬浮窗(Windows PowerShell 5.1+,零依赖)
 # UI 逐项照抄 macOS ZCodeUsageHUD 规格:372 宽 / 18 内边距 / 16 圆角 / 6px 胶囊进度条 / macOS 标签色阶梯
 # 配色与 ZCode 外观主题保持一致(探测 ZCode 窗口实际配色,深浅同步);ZCODE_WIDGET_THEME=light|dark 可强制
 # 高峰期提醒横幅(周一至周五 14:00–18:00 常驻);调试:ZCODE_WIDGET_PEAK=on 强制显示,ZCODE_WIDGET_PEAK_SHIFT=<小时数> 平移模拟时钟
@@ -416,7 +416,7 @@ $xamlText = @'
             </Grid>
             <Grid x:Name="LProvidersRow" Height="15" Margin="0,3,0,0">
               <TextBlock Text="本机按账号" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" VerticalAlignment="Center"/>
-              <TextBlock x:Name="LProviders" Text="" FontSize="10.5" HorizontalAlignment="Right" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
+              <TextBlock x:Name="LProviders" Text="" FontSize="10.5" HorizontalAlignment="Right" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="190" TextAlignment="Right"/>
             </Grid>
             <Grid Height="15" Margin="0,2,0,0">
               <TextBlock Text="账号(全部设备)" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" VerticalAlignment="Center"/>
@@ -1351,12 +1351,19 @@ $win.Add_SourceInitialized({
         $LIO.Text = '{0} / {1} / {2}' -f (Format-Tokens ([double]$script:lastLocal.inputTokens)), (Format-Tokens ([double]$script:lastLocal.outputTokens)), (Format-Tokens $loc)
         $ms = @($script:lastLocal.byModel.PSObject.Properties | ForEach-Object { '{0} {1}' -f (Format-ModelName $_.Name), (Format-Tokens ([double]$_.Value.tokens)) })
         if ($ms.Count) { $LModels.Text = $ms -join ' · '; $LModelsRow.Visibility = 'Visible' } else { $LModelsRow.Visibility = 'Collapsed' }
-        $prows = @($script:lastLocal.byProvider.PSObject.Properties | ForEach-Object {
-          $n = [string]$_.Name
-          if ($n -like 'account:*') { $n = '账号:' + ($n -replace '^account:(bigmodel-|zai-)?', '') }
-          if ($n.Length -gt 20) { $n = $n.Substring(0, 20) + '…' }
-          '{0} {1}' -f $n, (Format-Tokens ([double]$_.Value.tokens))
-        })
+        # provider_id → 短标签:ZCode 凭据就三类形态(API Key / 账号·个人 / 账号·团队),
+        # 原名太长(account:bigmodel-individual-coding-plan)会顶爆弹窗宽度;同类合并
+        $pmap = @{}
+        foreach ($p in $script:lastLocal.byProvider.PSObject.Properties) {
+          $n = [string]$p.Name
+          $label = if ($n -like 'account:*individual*') { '个人' }
+            elseif ($n -like 'account:*team*') { '团队' }
+            elseif ($n -like 'account:*') { '账号' }
+            else { 'API' }
+          $t = [double]$p.Value.tokens
+          if ($pmap.ContainsKey($label)) { $pmap[$label] += $t } else { $pmap[$label] = $t }
+        }
+        $prows = @($pmap.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { '{0} {1}' -f $_.Key, (Format-Tokens $_.Value) })
         if ($prows.Count) { $LProviders.Text = $prows -join ' · '; $LProvidersRow.Visibility = 'Visible' } else { $LProvidersRow.Visibility = 'Collapsed' }
         $LTotalVal.Text = '{0:N0} 次 · {1}' -f [double]$script:lastTotalCalls, (Format-Tokens $tot)
         $w = [Math]::Round(282 * [Math]::Min(100, [Math]::Max(0, $pct)) / 100)
