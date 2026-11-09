@@ -38,8 +38,19 @@ const ECHARTS_JS = path.join(HERE, 'echarts.min.js');
 const PORT_FILE = path.join(os.homedir(), '.zcode', 'scripts', 'quota-curve.port');
 
 // ---------- /data:采样 JSONL → 页面的 periods 形状(与 widget browser_payload 同构) ----------
-/** 逐周期:按 host+resetAt 分组,采样变 [epoch_ms, 剩余%];水位非法的行忽略 */
-export function curvePayloadFromFile(file, nowMs = Date.now()) {
+/** 页面默认只拉最新 60 个周期(首屏轻快);「⏪ 更早」「全部」再抬高 limit。上限只裁显示,不动 JSONL。 */
+export const DEFAULT_CURVE_LIMIT = 60;
+export const MAX_CURVE_LIMIT = 2000;
+export function curveLimit(raw) {
+  if (raw == null || raw === '') return DEFAULT_CURVE_LIMIT; // URLSearchParams.get 无参数返回 null(勿当 0=全部)
+  const n = Math.trunc(Number(raw));
+  if (!Number.isFinite(n)) return DEFAULT_CURVE_LIMIT;
+  if (n <= 0) return MAX_CURVE_LIMIT;
+  return Math.max(1, Math.min(n, MAX_CURVE_LIMIT));
+}
+
+/** 逐周期:按 host+resetAt 分组,采样变 [epoch_ms, 剩余%];水位非法的行忽略;附带 periods_total 供页面判断还有更早数据 */
+export function curvePayloadFromFile(file, nowMs = Date.now(), limit = DEFAULT_CURVE_LIMIT) {
   const byKey = new Map();
   for (const s of readSamples(file)) {
     const at = Number(s.at);
@@ -60,10 +71,10 @@ export function curvePayloadFromFile(file, nowMs = Date.now()) {
     p.samples.push([at, Math.round((100 - pct) * 100) / 100]);
     byKey.set(key, p);
   }
-  const periods = [...byKey.values()]
+  const all = [...byKey.values()]
     .map((p) => ({ ...p, plan_levels: [...p.plan_levels], status: p.reset_at > nowMs ? 'active' : 'expired' }))
-    .sort((a, b) => b.reset_at - a.reset_at)
-    .slice(0, 60); // 页面与 widget 同上限:一次画 60 个周期足够
+    .sort((a, b) => b.reset_at - a.reset_at); // 新→旧
+  const periods = all.slice(0, Math.max(1, Math.min(Number(limit) || DEFAULT_CURVE_LIMIT, MAX_CURVE_LIMIT)));
   // 燃尽预测:只对进行中的窗口做(最近 45 分钟采样最小二乘;数据不足/停滞为 null,页面不画)
   for (const p of periods) {
     if (p.status !== 'active' || p.samples.length < 2) continue;
@@ -78,7 +89,7 @@ export function curvePayloadFromFile(file, nowMs = Date.now()) {
     };
   }
   for (const p of periods) p.samples.sort((a, b) => a[0] - b[0]);
-  return { generated_at: new Date().toISOString(), periods };
+  return { generated_at: new Date().toISOString(), periods_total: all.length, limit: periods.length, periods };
 }
 
 // ---------- /models:代理官方接口(30s 节流缓存),带 API 估价 ----------
@@ -170,7 +181,10 @@ const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://127.0.0.1');
   if (u.pathname === '/' || u.pathname === '/index.html') return sendFile(res, CURVE_HTML, 'text/html; charset=utf-8');
   if (u.pathname === '/echarts.min.js') return sendFile(res, ECHARTS_JS, 'application/javascript');
-  if (u.pathname === '/data') return sendJson(res, curvePayloadFromFile(samplesFile));
+  if (u.pathname === '/data') {
+    const limit = curveLimit(u.searchParams.get('limit'));
+    return sendJson(res, curvePayloadFromFile(samplesFile, Date.now(), limit));
+  }
   if (u.pathname === '/models') {
     return modelsPayloadFor(u.searchParams)
       .then((p) => sendJson(res, p || {}))

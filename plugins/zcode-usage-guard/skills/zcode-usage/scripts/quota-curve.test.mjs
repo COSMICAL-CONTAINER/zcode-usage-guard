@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { curvePayloadFromFile } from './quota-curve.mjs';
+import { curvePayloadFromFile, curveLimit } from './quota-curve.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'quota-curve-'));
@@ -25,6 +25,7 @@ test('curvePayloadFromFile:分组/剩余换算/峰值/状态/排序;坏行忽略
   ].join('\n') + '\n');
   const p = curvePayloadFromFile(file, 250); // now=250:reset 300 进行中,100 已过期
   assert.equal(p.periods.length, 3);
+  assert.equal(p.periods_total, 3); // 全量计数随行携带,页面据此提示「更早」
   assert.deepEqual(p.periods.map((x) => x.reset_at), [300, 100, 100]); // 重置时刻降序
   const active = p.periods[0];
   assert.equal(active.status, 'active');
@@ -40,7 +41,7 @@ test('curvePayloadFromFile:分组/剩余换算/峰值/状态/排序;坏行忽略
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('curvePayloadFromFile:超过 60 个周期只保留最近的 60 个', () => {
+test('curvePayloadFromFile:默认最新 60 个、periods_total 报全量、limit 可抬高', () => {
   const dir = tmp();
   const file = path.join(dir, 's.jsonl');
   const lines = [];
@@ -49,9 +50,27 @@ test('curvePayloadFromFile:超过 60 个周期只保留最近的 60 个', () => 
   }
   fs.writeFileSync(file, lines.join('\n') + '\n');
   const p = curvePayloadFromFile(file, 1_000_000);
-  assert.equal(p.periods.length, 60);
+  assert.equal(p.periods_total, 70);
+  assert.equal(p.periods.length, 60); // 默认只拉最新 60 个(首屏轻快)
   assert.equal(p.periods[0].reset_at, 70_000); // 最近的在前
+  assert.equal(Math.min(...p.periods.map((x) => x.reset_at)), 11_000); // 砍掉的是最旧的
+  const all = curvePayloadFromFile(file, 1_000_000, 2000);
+  assert.equal(all.periods.length, 70); // limit 抬高后全量返回,数据从不丢
+  const one = curvePayloadFromFile(file, 1_000_000, 1);
+  assert.equal(one.periods.length, 1);
+  assert.equal(one.periods[0].reset_at, 70_000);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('curveLimit:解析与钳制(<=0 表示全部,显示层上限 2000)', () => {
+  assert.equal(curveLimit(undefined), 60);
+  assert.equal(curveLimit(null), 60); // URLSearchParams.get 无参数时返回 null,不是 0
+  assert.equal(curveLimit(''), 60);
+  assert.equal(curveLimit('abc'), 60);
+  assert.equal(curveLimit('120'), 120);
+  assert.equal(curveLimit('0'), 2000);
+  assert.equal(curveLimit('-5'), 2000);
+  assert.equal(curveLimit('99999'), 2000);
 });
 
 test('服务集成:静态页/echarts/数据路由;无凭据时 /models 返回空对象', async () => {
@@ -83,6 +102,9 @@ test('服务集成:静态页/echarts/数据路由;无凭据时 /models 返回空
     const data = await (await fetch(`${url}/data`)).json();
     assert.equal(data.periods.length, 1);
     assert.equal(data.periods[0].samples[0][1], 70);
+    const capped = await (await fetch(`${url}/data?limit=1`)).json();
+    assert.equal(capped.periods.length, 1); // limit 路由参数被解析(不炸、不放大)
+    assert.equal(capped.periods_total, 1);
     const models = await (await fetch(`${url}/models`)).json();
     assert.deepEqual(models, {}); // 空 HOME 无凭据:优雅降级,不崩、不发网络
   } finally {

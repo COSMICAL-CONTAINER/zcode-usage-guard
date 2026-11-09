@@ -83,6 +83,7 @@
     <div class="ranges" id="ranges"></div>
     <div class="custom">起 <input type="date" id="start"> ~ 止 <input type="date" id="end"> <button class="btn" id="apply">应用</button></div>
     <button class="btn" id="refresh">刷新</button>
+    <button class="btn" id="earlier" title="把更早的周期从历史库加载进来" style="display:none">⏪ 更早</button>
   </div>
 </header>
 <main><div id="chart"></div></main>
@@ -108,6 +109,11 @@ const GAP_MS = 15 * 60 * 1000;
 const RANGES = [["今日", "today"], ["全部", 0], ["近 24 小时", 1], ["近 3 天", 3], ["近 7 天", 7], ["近 14 天", 14]];
 const MODEL_PALETTE = ["#22d3ee", "#8b5cf6", "#41d199", "#f4be43", "#f4535e"];
 let RAW = null, activeChip = "今日";
+// How many periods /data returns. Starts light (newest 60) so the initial
+// render and the 60 s auto-refresh stay cheap; "⏪ 更早", "全部" and a custom
+// range that reaches before the loaded span raise it — and it stays raised
+// across auto-refreshes, so the older view never snaps back mid-reading.
+let dataLimit = 60;
 // View state re-applied on every render so the 60 s auto-refresh keeps the
 // user's zoom: "today" (default: first cycle reaching into the local day →
 // now, recomputed as time passes), "all", or absolute start/end timestamps
@@ -320,8 +326,10 @@ function render() {
         });
     }
   }
+  const totalPeriods = (RAW && RAW.periods_total) || periods.length;
   document.getElementById("meta").textContent =
-    `${periods.length} 个周期 · ${periods.reduce((s, p) => s + p.samples.length, 0)} 条采样 · 更新于 ${RAW ? new Date(RAW.generated_at).toLocaleTimeString("zh-CN") : "-"}${forecastBadge}`;
+    `${periods.length}${totalPeriods > periods.length ? "/" + totalPeriods : ""} 个周期 · ${periods.reduce((s, p) => s + p.samples.length, 0)} 条采样 · 更新于 ${RAW ? new Date(RAW.generated_at).toLocaleTimeString("zh-CN") : "-"}${forecastBadge}`;
+  updateEarlier();
   chart.setOption({
     animationDurationUpdate: 420, animationEasingUpdate: "cubicOut",
     backgroundColor: "transparent",
@@ -349,6 +357,24 @@ function render() {
   applyZoomState();
   renderModels();
   renderCards(periods);
+}
+
+function updateEarlier() {
+  // The ⏪ button only exists while the DB holds periods the page hasn't loaded.
+  const btn = document.getElementById("earlier");
+  const total = (RAW && RAW.periods_total) || 0;
+  const loaded = (RAW && RAW.periods) ? RAW.periods.length : 0;
+  if (!total || loaded >= total) { btn.style.display = "none"; return; }
+  btn.style.display = "";
+  btn.textContent = `⏪ 更早（还有 ${total - loaded} 个周期）`;
+}
+async function ensureLoadedUntil(ms) {
+  // Some view needs data older than what is loaded: fetch the rest once,
+  // then let the caller zoom. No-op when everything is already in memory.
+  if (!RAW || !RAW.periods_total || RAW.periods.length >= RAW.periods_total) return;
+  if (GLOBAL_SPAN && ms >= GLOBAL_SPAN[0]) return;
+  dataLimit = RAW.periods_total;
+  await load();
 }
 
 function fmtTokens(value) {
@@ -631,10 +657,12 @@ function renderModels() {
   loadUsage();
 }
 
+const CARD_LIMIT = 240;  // a full year of periods would be a wall of cards; chart shows all
 function renderCards(periods) {
   const host = document.getElementById("cards");
   host.innerHTML = "";
-  for (const period of periods.slice(0, 60)) {
+  const shown = periods.slice(0, CARD_LIMIT);
+  for (const period of shown) {
     const card = document.createElement("div");
     card.className = "card" + (period.status === "active" ? " active-cycle" : "");
     card.onclick = () => {
@@ -653,6 +681,13 @@ function renderCards(periods) {
         <div>观测峰值已用<b>${period.peak_used_percent.toFixed(0)}%</b></div>
       </div>`;
     host.appendChild(card);
+  }
+  if (periods.length > shown.length) {
+    const more = document.createElement("div");
+    more.className = "sub";
+    more.style.cssText = "grid-column:1/-1;padding:0 22px 6px;color:var(--muted);font-size:12px";
+    more.textContent = `更早的 ${periods.length - shown.length} 个周期已加载到上方图表，卡片仅列最近 ${CARD_LIMIT} 个`;
+    host.appendChild(more);
   }
 }
 
@@ -684,12 +719,14 @@ function resetTodayView() {
   if (startValue == null || !GLOBAL_SPAN) chart.dispatchAction({type: "dataZoom", start: 0, end: 100});
   else chart.dispatchAction({type: "dataZoom", startValue, endValue: VIEW_END});
 }
-function applyRange(label, mode) {
+async function applyRange(label, mode) {
   setChip(label);
   if (mode === "today") return resetTodayView();
-  if (!mode) return zoomTo(null, null);
+  if (!mode) { await ensureLoadedUntil(-Infinity); return zoomTo(null, null); }
   // Endless end: the window keeps its trailing edge on the newest sample.
-  zoomTo(Date.now() - mode * 86400e3, Infinity);
+  const startValue = Date.now() - mode * 86400e3;
+  await ensureLoadedUntil(startValue);  // e.g. 近 14 天 ≈ 67 periods > the default 60
+  zoomTo(startValue, Infinity);
 }
 
 const ranges = document.getElementById("ranges");
@@ -700,18 +737,35 @@ for (const [label, mode] of RANGES) {
   chip.onclick = () => applyRange(label, mode);
   ranges.appendChild(chip);
 }
-document.getElementById("apply").onclick = () => {
+document.getElementById("apply").onclick = async () => {
   const s = document.getElementById("start").value, e = document.getElementById("end").value;
-  if (!s || !e || e < s) { setChip("全部"); return zoomTo(null, null); }
+  if (!s || !e || e < s) { setChip("全部"); await ensureLoadedUntil(-Infinity); return zoomTo(null, null); }
+  const startMs = new Date(s + "T00:00:00").getTime();
+  await ensureLoadedUntil(startMs);  // a range before the loaded span loads it first
   setChip("自定义");
-  zoomTo(new Date(s + "T00:00:00").getTime(), new Date(e + "T23:59:59").getTime());
+  zoomTo(startMs, new Date(e + "T23:59:59").getTime());
 };
 document.getElementById("refresh").onclick = load;
+document.getElementById("earlier").onclick = async () => {
+  dataLimit = (RAW && RAW.periods_total) || dataLimit;
+  await load();
+};
 async function load() {
-  try { RAW = await (await fetch("/data", {cache: "no-store"})).json(); render(); }
+  try { RAW = await (await fetch(`/data?limit=${dataLimit}`, {cache: "no-store"})).json(); render(); }
   catch (err) { document.getElementById("meta").textContent = "读取失败：" + err; }
 }
 window.addEventListener("resize", () => { chart.resize(); modelsChart.resize(); });
+// Boot params: ?limit=N opens with the newest N periods (0 = everything, same
+// semantics as the server), ?view=all starts on the full span AND loads it —
+// a specific view is then linkable/bookmarkable and the extended render is
+// verifiable headlessly (?limit=0&view=all draws everything).
+{
+  const params = new URLSearchParams(location.search);
+  const raw = params.get("limit");
+  const n = raw == null || raw === "" ? NaN : Number(raw);
+  if (Number.isFinite(n) && n >= 0) dataLimit = Math.min(2000, Math.ceil(n));
+  if (params.get("view") === "all") { dataLimit = 0; zoomState = {type: "all"}; setChip("全部"); }
+}
 setInterval(load, 60_000);
 load();
 </script>
