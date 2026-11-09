@@ -1,4 +1,4 @@
-# zcode-usage-guard — 0.5.1
+# zcode-usage-guard — 0.5.2
 
 [中文](README.md) · English
 
@@ -80,7 +80,7 @@ API-key fallback UI with provider picker, credential auto-detection order (args 
 ## Tests & changelog
 
 ```bash
-node --test plugins/zcode-usage-guard/skills/zcode-usage/scripts/*.test.mjs   # 42 green
+node --test plugins/zcode-usage-guard/skills/zcode-usage/scripts/*.test.mjs   # 44 green
 ```
 
 Full changelog in [README.md](README.md#更新日志) (Chinese).

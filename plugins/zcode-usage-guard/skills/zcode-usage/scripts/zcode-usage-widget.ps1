@@ -1467,12 +1467,14 @@ function Invoke-CurveLaunch {
       $Hint.Foreground = Brush '#3CB371'
     }
   } catch { }
-  $curveScript = Join-Path $env:USERPROFILE '.zcode\scripts\quota-curve.mjs'
-  if (-not (Test-Path $curveScript)) {
-    $cached = Get-ChildItem "$env:USERPROFILE\.zcode\cli\plugins\cache\*\zcode-usage*\*\skills\zcode-usage\scripts\quota-curve.mjs" -ErrorAction SilentlyContinue |
-      Sort-Object FullName -Descending | Select-Object -First 1
-    if ($cached) { $curveScript = $cached.FullName }
-  }
+  # 曲线脚本按修改时间选新者:~/.zcode/scripts 是 --install 时的快照,市场更新只刷新插件缓存——
+  # 旧快照无条件优先,装过 --install 的用户市场更新后 📈 永远开旧曲线(0.5.2 实测),故比较 LastWriteTime
+  $installed = Join-Path $env:USERPROFILE '.zcode\scripts\quota-curve.mjs'
+  $cached = Get-ChildItem "$env:USERPROFILE\.zcode\cli\plugins\cache\*\zcode-usage*\*\skills\zcode-usage\scripts\quota-curve.mjs" -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  $curveScript = ''
+  if (Test-Path $installed) { $curveScript = $installed }
+  if ($cached -and (-not $curveScript -or $cached.LastWriteTime -gt (Get-Item $curveScript).LastWriteTime)) { $curveScript = $cached.FullName }
   if ((Test-Path $curveScript) -and $script:nodeExe) {
     Start-Process -WindowStyle Hidden -FilePath $script:nodeExe -ArgumentList "`"$curveScript`""
     return
