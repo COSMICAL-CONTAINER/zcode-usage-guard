@@ -1346,7 +1346,9 @@ $win.Add_SourceInitialized({
       if ($script:lastLocal) {
         $loc = [double]$script:lastLocal.totalTokens
         # 分子分母同口径:都取检测 key 的 API 通道(账号登录走个人套餐,与该 key 的套餐无关)
-        $apiT = if ($script:lastLocal.byProvider.PSObject.Properties['bigmodel-api']) { [double]$script:lastLocal.byProvider['bigmodel-api'].tokens } else { $loc }
+        # ⚠ PS5.1 的 PSCustomObject 不支持 $obj['key'] 方括号索引——静默返回 null(→[double]$null=0,本机占比恒 0%),必须走 .PSObject.Properties['key'].Value
+        $apiProp = $script:lastLocal.byProvider.PSObject.Properties['bigmodel-api']
+        $apiT = if ($apiProp) { [double]$apiProp.Value.tokens } else { $loc }
         # 分母对齐官方小时格滞后:完整小时官方含该 key 全部设备,进行中的小时用本机补齐(其他设备当前小时无法知晓,如实不计)
         $tot = [double]$script:lastTotalTokens
         if ($script:lastAccountAligned -and [double]$script:lastAccountAligned.alignedT -gt 0) { $tot = [double]$script:lastAccountAligned.alignedT }
