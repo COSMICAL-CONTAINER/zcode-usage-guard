@@ -345,6 +345,23 @@ export function isPeakHourLabel(label) {
   return hour >= 14 && hour <= 17;
 }
 
+/** 账号口径对齐:官方小时格对"进行中的小时"延迟计数,而本机 sqlite 实时落库——
+ *  直接相除会在对话进行中虚超 100%(实测 121%)。按小时与本机取大:
+ *  完整小时官方含该 key 全部设备故 ≥ 本机;滞后小时用本机补齐(其他设备当前小时无法知晓,如实不计)。
+ *  返回 reported(官方原值)与 aligned(对齐后,≥ 本机同通道合计),supplementedT 为本机补了多少。 */
+export function alignAccountHourly(offT, offC, locT, locC) {
+  let reportedT = 0, reportedC = 0, alignedT = 0, alignedC = 0, supplementedT = 0;
+  for (let h = 0; h < 24; h++) {
+    const ot = Number(offT?.[h]) || 0, oc = Number(offC?.[h]) || 0;
+    const lt = Number(locT?.[h]) || 0, lc = Number(locC?.[h]) || 0;
+    reportedT += ot; reportedC += oc;
+    alignedT += Math.max(ot, lt);
+    alignedC += Math.max(oc, lc);
+    supplementedT += Math.max(0, lt - ot);
+  }
+  return { reportedT, reportedC, alignedT, alignedC, supplementedT };
+}
+
 /** model-usage 当日响应 → 高峰用量 { calls, tokens }(逐小时桶按标签归类) */
 export function peakOf(modelUsage) {
   let calls = 0;
@@ -878,6 +895,20 @@ function localUsageTodaySqlite(nowMs, dbPath) {
         bp.calls += n; bp.tokens += tot;
       }
       out.byProvider = byProvider;
+      // 逐小时分列(provider → 24 格):账号口径对齐(官方小时格滞后)用,见 alignAccountHourly
+      const hrows = db.prepare(
+        `SELECT provider_id, started_at, COALESCE(input_tokens,0)+COALESCE(output_tokens,0) tot
+         FROM model_usage WHERE started_at >= ?`).all(dayStart);
+      const hourly = {};
+      for (const r of hrows) {
+        const hh = Math.floor((Number(r.started_at) - dayStart) / 3600000);
+        if (!(hh >= 0 && hh <= 23)) continue;
+        const pv = String(r.provider_id || 'unknown');
+        const b = hourly[pv] || (hourly[pv] = { tokens: new Array(24).fill(0), calls: new Array(24).fill(0) });
+        b.tokens[hh] += Number(r.tot) || 0;
+        b.calls[hh] += 1;
+      }
+      if (Object.keys(hourly).length) out.hourly = hourly;
       return out;
     } finally { db.close(); }
   } catch { return null; }
@@ -1129,9 +1160,28 @@ async function main() {
       try { quotaForecast = forecastSummaryFromSamples(readSamples(samplesArg || DEFAULT_SAMPLES_FILE()), nowMs); }
       catch { /* 预测失败不影响查询 */ }
     }
+    const localUsage = localUsageToday(nowMs); // 本机视角:sqlite 全量(北京时间当日)
+    // 账号口径对齐:官方小时格对进行中的小时延迟计数,与本机 bigmodel-api 通道按小时取大——
+    // 💹 弹窗同口径对比,对话进行中本机/账号不再虚超 100%
+    let accountAligned = null;
+    if (total && Array.isArray(modelUsage.x_time) && localUsage?.hourly?.['bigmodel-api']) {
+      const todayKey = bjFmt(nowMs).slice(0, 10);
+      const offT = new Array(24).fill(0); const offC = new Array(24).fill(0);
+      for (let i = 0; i < modelUsage.x_time.length; i++) {
+        const lab = String(modelUsage.x_time[i] || '');
+        if (lab.slice(0, 10) !== todayKey) continue;
+        const h = Number(lab.slice(11, 13));
+        if (!(h >= 0 && h <= 23)) continue;
+        offT[h] = Number(modelUsage.tokensUsage?.[i]) || 0;
+        offC[h] = Number(modelUsage.modelCallCount?.[i]) || 0;
+      }
+      const lh = localUsage.hourly['bigmodel-api'];
+      accountAligned = alignAccountHourly(offT, offC, lh.tokens, lh.calls);
+    }
     console.log(JSON.stringify({
       quota, modelUsage, toolUsage, usageSplit,
-      localUsage: localUsageToday(nowMs), // 本机视角:解析本地模型 I/O 日志(北京时间当日)
+      localUsage,
+      accountAligned, // 官方滞后小时用本机补齐后的账号口径(reported=官方原值);💹 弹窗用
       localSpeed, // 本机生成速度/缓存/首字:自行计算,悬浮窗的 ⚡ 行数据源
       quotaForecast,
     }, null, 2));

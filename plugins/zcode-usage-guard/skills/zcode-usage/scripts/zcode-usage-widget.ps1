@@ -422,7 +422,7 @@ $xamlText = @'
               <TextBlock Text="账号(全部设备)" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" VerticalAlignment="Center"/>
               <TextBlock x:Name="LTotalVal" Text="" FontSize="10.5" HorizontalAlignment="Right" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
             </Grid>
-            <TextBlock Text="本机 = 本电脑当日全部调用(sqlite 用量库,含 workflow 子代理,按账号分列);账号 = 官方计费口径(该 key 名下所有设备,含缓存写入,故普遍大于本机)" FontSize="9.5" Foreground="{DynamicResource QuaternaryBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+            <TextBlock Text="本机 = 本电脑当日全部调用(sqlite 用量库,含 workflow 子代理,按账号分列);账号 = 官方计费口径(该 key 名下所有设备,含缓存写入)。官方小时格对进行中的小时有延迟——缺额按本机补齐后再比,本机占比不因延迟虚高;其他设备的当前小时无法知晓,如实不计" FontSize="9.5" Foreground="{DynamicResource QuaternaryBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
           </StackPanel>
         </Border>
       </Popup>
@@ -992,6 +992,7 @@ function Invoke-RefreshImpl {
   }
   # 本机/账号对比数据(💹 悬浮弹窗用)
   $script:lastLocal = $d.localUsage
+  $script:lastAccountAligned = $d.accountAligned
   $script:lastTotalTokens = [double]$t.totalTokensUsage
   $script:lastTotalCalls = [double]$t.totalModelCallCount
   if ($ok) {
@@ -1344,8 +1345,12 @@ $win.Add_SourceInitialized({
     try {
       if ($script:lastLocal) {
         $loc = [double]$script:lastLocal.totalTokens
-        $tot = $script:lastTotalTokens
-        $pct = if ($tot -gt 0) { [Math]::Round($loc / $tot * 100, 1) } else { 0 }
+        # 分子分母同口径:都取检测 key 的 API 通道(账号登录走个人套餐,与该 key 的套餐无关)
+        $apiT = if ($script:lastLocal.byProvider.PSObject.Properties['bigmodel-api']) { [double]$script:lastLocal.byProvider['bigmodel-api'].tokens } else { $loc }
+        # 分母对齐官方小时格滞后:完整小时官方含该 key 全部设备,进行中的小时用本机补齐(其他设备当前小时无法知晓,如实不计)
+        $tot = [double]$script:lastTotalTokens
+        if ($script:lastAccountAligned -and [double]$script:lastAccountAligned.alignedT -gt 0) { $tot = [double]$script:lastAccountAligned.alignedT }
+        $pct = if ($tot -gt 0) { [Math]::Round($apiT / $tot * 100, 1) } else { 0 }
         $LPct.Text = '本机 {0}%' -f $pct
         $LCalls.Text = '{0:N0} 次' -f [double]$script:lastLocal.calls
         $LIO.Text = '{0} / {1} / {2}' -f (Format-Tokens ([double]$script:lastLocal.inputTokens)), (Format-Tokens ([double]$script:lastLocal.outputTokens)), (Format-Tokens $loc)
@@ -1365,7 +1370,8 @@ $win.Add_SourceInitialized({
         }
         $prows = @($pmap.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { '{0} {1}' -f $_.Key, (Format-Tokens $_.Value) })
         if ($prows.Count) { $LProviders.Text = $prows -join ' · '; $LProvidersRow.Visibility = 'Visible' } else { $LProvidersRow.Visibility = 'Collapsed' }
-        $LTotalVal.Text = '{0:N0} 次 · {1}' -f [double]$script:lastTotalCalls, (Format-Tokens $tot)
+        $aC = if ($script:lastAccountAligned) { [double]$script:lastAccountAligned.alignedC } else { [double]$script:lastTotalCalls }
+        $LTotalVal.Text = '{0:N0} 次 · {1}' -f $aC, (Format-Tokens $tot)
         $w = [Math]::Round(282 * [Math]::Min(100, [Math]::Max(0, $pct)) / 100)
         $LFill.Width = [Math]::Max($w, 6)
       } else {

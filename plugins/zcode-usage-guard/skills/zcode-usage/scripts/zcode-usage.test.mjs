@@ -4,8 +4,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  bjFmt, bjDayStartMs, weekdayOfDateStr, isPeakHourLabel, peakOf,
+  bjFmt, bjDayStartMs, weekdayOfDateStr, isPeakHourLabel, peakOf, alignAccountHourly,
 } from './zcode-usage.mjs';
+
+// ---------- 账号口径对齐(官方小时格滞后 × 本机实时) ----------
+test('alignAccountHourly:完整小时取官方(含其他设备),滞后小时用本机补齐', () => {
+  const offT = [100, 200, 0], offC = [2, 3, 0];
+  const locT = [80, 260, 150], locC = [2, 4, 3];
+  const a = alignAccountHourly(offT, offC, locT, locC);
+  assert.equal(a.reportedT, 300);
+  assert.equal(a.reportedC, 5);
+  // h0:官方 100 ≥ 本机 80,官方含该 key 全部设备取 100;h1/h2:官方滞后(200<260、0<150)用本机补
+  assert.equal(a.alignedT, 100 + 260 + 150);
+  assert.equal(a.alignedC, 2 + 4 + 3);
+  assert.equal(a.supplementedT, 60 + 150);
+  // 对齐后必 ≥ 本机同通道合计 → 弹窗占比结构上 ≤ 100%
+  assert.ok(a.alignedT >= locT.reduce((s, x) => s + x, 0));
+});
+test('alignAccountHourly:全零官方(接口未出数)退化为纯本机,不炸', () => {
+  const a = alignAccountHourly([], [], [10, 20], [1, 1]);
+  assert.equal(a.alignedT, 30);
+  assert.equal(a.reportedT, 0);
+});
 
 // ---------- 北京时间折算(纯 UTC 运算,结果与本机时区无关) ----------
 test('bjFmt:epoch → 北京时间字符串', () => {
@@ -149,4 +169,8 @@ test('localUsageToday:sqlite 库优先,含 byProvider 分号', () => {
   assert.equal(u.totalTokens, 1550);
   assert.equal(u.byProvider['bigmodel-api'].tokens, 1000);
   assert.equal(u.byProvider['account:bigmodel-individual-coding-plan'].tokens, 550);
+  // 逐小时分列:今天 0 点起第 1 秒 → 第 0 格,按 provider 分桶;昨天的行不入
+  assert.equal(u.hourly['bigmodel-api'].tokens[0], 1000);
+  assert.equal(u.hourly['bigmodel-api'].calls[0], 1);
+  assert.equal(u.hourly['account:bigmodel-individual-coding-plan'].tokens[0], 550);
 });
