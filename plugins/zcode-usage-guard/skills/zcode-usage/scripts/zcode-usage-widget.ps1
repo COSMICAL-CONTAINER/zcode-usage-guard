@@ -422,7 +422,7 @@ $xamlText = @'
               <TextBlock Text="账号(全部设备)" FontSize="10.5" Foreground="{DynamicResource TertiaryBrush}" VerticalAlignment="Center"/>
               <TextBlock x:Name="LTotalVal" Text="" FontSize="10.5" HorizontalAlignment="Right" Foreground="{DynamicResource SecondaryBrush}" VerticalAlignment="Center"/>
             </Grid>
-            <TextBlock Text="本机 = 本电脑当日全部 ZCode 调用(sqlite,含子代理);账号 = 官方口径·整个套餐(同套餐所有 key 与设备,含缓存写入)。官方小时格有延迟,进行中的小时按本机补齐后再比;绕过 ZCode 的直连调用两边都不计" FontSize="9.5" Foreground="{DynamicResource QuaternaryBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+            <TextBlock Text="本机 = 本电脑经 ZCode 的全部调用;账号 = 整个套餐的官方计费(含其他设备与直连调用)。当前小时官方有延迟,已按本机补齐" FontSize="9.5" Foreground="{DynamicResource QuaternaryBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
           </StackPanel>
         </Border>
       </Popup>
